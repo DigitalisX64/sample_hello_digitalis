@@ -26,6 +26,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | gles3jni | OpenGL ES 3.0 with instanced rendering | `./gradlew :gles3jni:assembleDebug` |
 | native-activity | Pure C++ NativeActivity with EGL/GLES rendering | `./gradlew :native-activity:assembleDebug` |
 | native-audio | OpenSL ES audio playback and recording | `./gradlew :native-audio:assembleDebug` |
+| native-codec | Video playback using Native Media Codec API | `./gradlew :native-codec:assembleDebug` |
 
 ## Prerequisites
 
