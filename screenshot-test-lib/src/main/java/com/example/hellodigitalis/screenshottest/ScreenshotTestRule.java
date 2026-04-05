@@ -51,8 +51,9 @@ public class ScreenshotTestRule implements TestRule {
                 try {
                     base.evaluate();
                 } finally {
-                    // Cleanup: force stop the app
-                    executeShellCommand("am force-stop " + packageName);
+                    // Send HOME to dismiss the app. Don't use am force-stop because it
+                    // kills the test process too (shared UID with instrumented app).
+                    executeShellCommand("input keyevent KEYCODE_HOME");
                 }
             }
         };
@@ -142,26 +143,41 @@ public class ScreenshotTestRule implements TestRule {
 
     private void saveReferenceImage(Bitmap bitmap) {
         String moduleName = packageName.replace(".", "_");
-        File dir = new File("/data/local/tmp/references/" + moduleName);
-        dir.mkdirs();
-        File file = new File(dir, "screenshot_default.png");
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            Log.i(TAG, "Reference saved to " + file.getAbsolutePath());
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to save reference image", e);
-        }
+        String dirPath = "/data/local/tmp/references/" + moduleName;
+        String filePath = dirPath + "/screenshot_default.png";
+        saveBitmapViaShell(bitmap, dirPath, filePath);
+        Log.i(TAG, "Reference saved to " + filePath);
     }
 
     private void saveBitmapToDevice(Bitmap bitmap, String moduleName, String filename) {
-        File dir = new File("/data/local/tmp/screenshots/" + moduleName);
-        dir.mkdirs();
-        File file = new File(dir, filename);
-        try (FileOutputStream fos = new FileOutputStream(file)) {
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            Log.i(TAG, "Saved " + file.getAbsolutePath());
+        String dirPath = "/data/local/tmp/screenshots/" + moduleName;
+        String filePath = dirPath + "/" + filename;
+        saveBitmapViaShell(bitmap, dirPath, filePath);
+        Log.i(TAG, "Saved " + filePath);
+    }
+
+    /**
+     * Save bitmap to device via a temp file + shell copy.
+     * The test app process can't write to /data/local/tmp directly,
+     * but UiAutomation shell commands run as shell user which can.
+     */
+    private void saveBitmapViaShell(Bitmap bitmap, String dirPath, String filePath) {
+        try {
+            // Write to app-private temp file first (use target context which has writable dirs)
+            File cacheDir = InstrumentationRegistry.getInstrumentation()
+                    .getTargetContext().getCacheDir();
+            cacheDir.mkdirs();
+            File tempFile = new File(cacheDir, "screenshot_tmp.png");
+            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+            }
+            // Use shell commands to mkdir and copy to /data/local/tmp
+            executeShellCommand("mkdir -p " + dirPath);
+            executeShellCommand("cp " + tempFile.getAbsolutePath() + " " + filePath);
+            executeShellCommand("chmod 644 " + filePath);
+            tempFile.delete();
         } catch (IOException e) {
-            Log.e(TAG, "Failed to save " + filename, e);
+            Log.e(TAG, "Failed to save bitmap to " + filePath, e);
         }
     }
 
