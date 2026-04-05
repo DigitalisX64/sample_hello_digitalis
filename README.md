@@ -32,6 +32,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | camera-basic | Camera2 NDK preview and JPEG capture | `./gradlew :camera-basic:assembleDebug` |
 | camera-texture-view | Camera preview with TextureView rendering | `./gradlew :camera-texture-view:assembleDebug` |
 | teapots-classic | Utah teapot with GLES 2.0 and touch gestures | `./gradlew :teapots-classic:assembleDebug` |
+| teapots-more | GLES 3.0 instanced teapots rendering | `./gradlew :teapots-more:assembleDebug` |
 
 ## Prerequisites
 
