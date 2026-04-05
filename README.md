@@ -22,6 +22,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | hello-jniCallback | JNI callbacks — native code calls Java methods | `./gradlew :hello-jniCallback:assembleDebug` |
 | exceptions | C++ exception handling across JNI boundary | `./gradlew :exceptions:assembleDebug` |
 | bitmap-plasma | Plasma effect rendered to Android Bitmap via JNI | `./gradlew :bitmap-plasma:assembleDebug` |
+| hello-gl2 | OpenGL ES 2.0 triangle via JNI | `./gradlew :hello-gl2:assembleDebug` |
 
 ## Prerequisites
 
