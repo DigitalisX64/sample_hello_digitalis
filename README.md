@@ -31,6 +31,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | sensor-graph | Accelerometer sensor visualization with OpenGL | `./gradlew :sensor-graph:assembleDebug` |
 | camera-basic | Camera2 NDK preview and JPEG capture | `./gradlew :camera-basic:assembleDebug` |
 | camera-texture-view | Camera preview with TextureView rendering | `./gradlew :camera-texture-view:assembleDebug` |
+| teapots-classic | Utah teapot with GLES 2.0 and touch gestures | `./gradlew :teapots-classic:assembleDebug` |
 
 ## Prerequisites
 
