@@ -178,8 +178,12 @@ void Renderer::calcSceneParams(unsigned int w, unsigned int h, float* offsets) {
   }
 
   mNumInstances = ncells[0] * ncells[1];
-  mScale[major] = 0.5f * CELL_SIZE * scene2clip[0];
-  mScale[minor] = 0.5f * CELL_SIZE * scene2clip[1];
+
+  // Break chained multiply to avoid JIT code generation issue where
+  // the intermediate result gets lost.
+  float half_cell = 0.5f * CELL_SIZE;
+  mScale[major] = half_cell * scene2clip[0];
+  mScale[minor] = half_cell * scene2clip[1];
 }
 
 void Renderer::step() {

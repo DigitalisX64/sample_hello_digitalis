@@ -157,10 +157,8 @@ bool JNIHelper::ReadFile(const char* fileName,
     env->ReleaseStringUTFChars(str_path, path);
     env->DeleteLocalRef(str_path);
   }
-  // region digitalis
   // Wrap ifstream in try-catch: under binary translation, std::locale
-  // construction may throw, causing std::terminate. Fall through to
-  // AAssetManager path which doesn't need locale.
+  // construction may throw. Fall through to AAssetManager path on failure.
   try {
     std::ifstream f(s.c_str(), std::ios::binary);
     activity_->vm->DetachCurrentThread();
@@ -176,10 +174,9 @@ bool JNIHelper::ReadFile(const char* fileName,
       return true;
     }
   } catch (...) {
-    LOGI("ifstream failed (locale exception), falling back to AAssetManager");
+    LOGI("ifstream failed, falling back to AAssetManager");
     activity_->vm->DetachCurrentThread();
   }
-  // endregion
   {
     // Fallback to assetManager
     AAssetManager* assetManager = activity_->assetManager;
