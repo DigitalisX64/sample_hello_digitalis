@@ -27,6 +27,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | native-activity | Pure C++ NativeActivity with EGL/GLES rendering | `./gradlew :native-activity:assembleDebug` |
 | native-audio | OpenSL ES audio playback and recording | `./gradlew :native-audio:assembleDebug` |
 | native-codec | Video playback using Native Media Codec API | `./gradlew :native-codec:assembleDebug` |
+| native-midi | Android Native MIDI API (requires Android 10+) | `./gradlew :native-midi:assembleDebug` |
 
 ## Prerequisites
 
