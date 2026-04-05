@@ -18,6 +18,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | Module | Description | Build |
 |--------|-------------|-------|
 | hello-vulkan | Vulkan triangle renderer | `./gradlew :hello-vulkan:assembleDebug` |
+| hello-jni | Basic JNI — calls C code from Kotlin Activity | `./gradlew :hello-jni:assembleDebug` |
 
 ## Prerequisites
 
