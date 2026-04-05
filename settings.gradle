@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "hello-digitalis"
-include ':app'
+include ':hello-vulkan'

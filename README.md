@@ -1,6 +1,23 @@
-# Hello Digitalis
+# Hello Digitalis Samples
 
-Minimal ARM64-only Vulkan triangle app for testing Digitalis binary translation. Renders an RGB-colored triangle using hardcoded vertex positions and colors.
+ARM64-only sample apps for testing Digitalis binary translation.
+
+## Credits
+
+Most sample modules in this project are ported from the
+[Android NDK Samples](https://github.com/android/ndk-samples) repository
+by Google, licensed under the
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Modifications were made to build as ARM64-only modules for testing
+Digitalis binary translation.
+
+The original `hello-vulkan` module was written for the Digitalis project.
+
+## Modules
+
+| Module | Description | Build |
+|--------|-------------|-------|
+| hello-vulkan | Vulkan triangle renderer | `./gradlew :hello-vulkan:assembleDebug` |
 
 ## Prerequisites
 
@@ -9,31 +26,19 @@ Minimal ARM64-only Vulkan triangle app for testing Digitalis binary translation.
 
 ## Build
 
+Build all modules:
+
 ```bash
-cd sample/hellodigitalis
 ./gradlew assembleDebug
 ```
-
-The APK is output to `app/build/outputs/apk/debug/app-debug.apk`.
-
-## Shaders
-
-GLSL shader sources are in `app/src/main/cpp/shaders/`:
-
-- `triangle.vert` — vertex shader (hardcoded triangle positions and RGB colors)
-- `triangle.frag` — fragment shader (pass-through color)
-
-CMake compiles these to SPIR-V at build time using `glslangValidator` and generates C headers (`triangle.vert.spv.h`, `triangle.frag.spv.h`) that are included by `vulkan_renderer.cpp`.
-
-To modify the shaders, edit the `.vert`/`.frag` files and rebuild.
 
 ## Install and Run
 
 On the Digitalis emulator (x86_64 with NativeBridge):
 
 ```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
+adb install hello-vulkan/build/outputs/apk/debug/hello-vulkan-debug.apk
 adb shell am start -n com.example.hellodigitalis/android.app.NativeActivity
 ```
 
-The app is ARM64-only (`arm64-v8a`). It will not run on x86_64 devices without NativeBridge binary translation.
+The apps are ARM64-only (`arm64-v8a`). They will not run on x86_64 devices without NativeBridge binary translation.
