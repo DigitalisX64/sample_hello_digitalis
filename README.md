@@ -37,6 +37,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | endless-tunnel | 3D tunnel game with scene management and GLES 2.0 | `./gradlew :endless-tunnel:assembleDebug` |
 | sanitizers | Address/UB sanitizer demo (HWASan/ASan/UBSan) | `./gradlew :sanitizers:assembleDebug` |
 | unit-test | Native unit testing with GoogleTest via Prefab | `./gradlew :unit-test:assembleDebug` |
+| vectorization | SIMD vectorization benchmarks (matrix multiplication) | `./gradlew :vectorization:assembleDebug` |
 
 ## Prerequisites
 
