@@ -211,7 +211,6 @@ bool TeapotRenderer::LoadShaders(SHADER_PARAMS* params, const char* strVsh,
                                          strVsh)) {
     LOGI("Failed to compile vertex shader");
     glDeleteProgram(program);
-    assert(false);
     return false;
   }
 
@@ -220,7 +219,6 @@ bool TeapotRenderer::LoadShaders(SHADER_PARAMS* params, const char* strVsh,
                                          strFsh)) {
     LOGI("Failed to compile fragment shader");
     glDeleteProgram(program);
-    assert(false);
     return false;
   }
 

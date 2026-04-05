@@ -18,8 +18,7 @@
 
 // Shader sources extracted from shaders/es2_vertex.vert and shaders/es2_fragment.frag
 
-static const char ES2_VERTEX_SHADER[] = R"(
-#version 100
+static const char ES2_VERTEX_SHADER[] = R"(#version 100
 uniform mat2 scaleRot;
 uniform vec2 offset;
 attribute vec2 pos;
@@ -31,8 +30,7 @@ void main() {
 }
 )";
 
-static const char ES2_FRAGMENT_SHADER[] = R"(
-#version 100
+static const char ES2_FRAGMENT_SHADER[] = R"(#version 100
 precision mediump float;
 varying vec4 vColor;
 void main() {

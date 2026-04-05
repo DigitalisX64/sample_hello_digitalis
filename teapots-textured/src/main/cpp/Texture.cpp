@@ -159,7 +159,6 @@ Texture* Texture::Create(GLuint type, std::vector<std::string>& texFiles,
 
   LOGE("Unknown texture type %x to created", type);
   LOGE("Supported Texture Types: %s", supportedTextureTypes.c_str());
-  assert(false);
   return nullptr;
 }
 
@@ -215,7 +214,6 @@ TextureCubemap::TextureCubemap(std::vector<std::string>& files,
   // so no texture vbo necessary
 
   if (!mgr || files.size() != 6) {
-    assert(false);
     return;
   }
 
@@ -223,7 +221,6 @@ TextureCubemap::TextureCubemap(std::vector<std::string>& files,
   glBindTexture(GL_TEXTURE_CUBE_MAP, texId_);
 
   if (texId_ == GL_INVALID_VALUE) {
-    assert(false);
     return;
   }
 
@@ -274,7 +271,6 @@ bool TextureCubemap::GetActiveSamplerInfo(std::vector<std::string>& names,
 Texture2d::Texture2d(std::string& fileName, AAssetManager* assetManager) {
   if (!assetManager) {
     LOGE("AssetManager to Texture2D() could not be null!!!");
-    assert(false);
     return;
   }
 
@@ -282,7 +278,6 @@ Texture2d::Texture2d(std::string& fileName, AAssetManager* assetManager) {
   glBindTexture(GL_TEXTURE_2D, texId_);
 
   if (texId_ == GL_INVALID_VALUE) {
-    assert(false);
     return;
   }
 

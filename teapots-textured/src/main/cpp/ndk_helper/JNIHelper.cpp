@@ -22,6 +22,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
 
 namespace ndk_helper {
 
@@ -156,19 +157,30 @@ bool JNIHelper::ReadFile(const char* fileName,
     env->ReleaseStringUTFChars(str_path, path);
     env->DeleteLocalRef(str_path);
   }
-  std::ifstream f(s.c_str(), std::ios::binary);
-  activity_->vm->DetachCurrentThread();
-  if (f) {
-    LOGI("reading:%s", s.c_str());
-    f.seekg(0, std::ifstream::end);
-    int32_t fileSize = f.tellg();
-    f.seekg(0, std::ifstream::beg);
-    buffer_ref->reserve(fileSize);
-    buffer_ref->assign(std::istreambuf_iterator<char>(f),
-                       std::istreambuf_iterator<char>());
-    f.close();
-    return true;
-  } else {
+  // region digitalis
+  // Wrap ifstream in try-catch: under binary translation, std::locale
+  // construction may throw, causing std::terminate. Fall through to
+  // AAssetManager path which doesn't need locale.
+  try {
+    std::ifstream f(s.c_str(), std::ios::binary);
+    activity_->vm->DetachCurrentThread();
+    if (f) {
+      LOGI("reading:%s", s.c_str());
+      f.seekg(0, std::ifstream::end);
+      int32_t fileSize = f.tellg();
+      f.seekg(0, std::ifstream::beg);
+      buffer_ref->reserve(fileSize);
+      buffer_ref->assign(std::istreambuf_iterator<char>(f),
+                         std::istreambuf_iterator<char>());
+      f.close();
+      return true;
+    }
+  } catch (...) {
+    LOGI("ifstream failed (locale exception), falling back to AAssetManager");
+    activity_->vm->DetachCurrentThread();
+  }
+  // endregion
+  {
     // Fallback to assetManager
     AAssetManager* assetManager = activity_->assetManager;
     AAsset* assetFile =
