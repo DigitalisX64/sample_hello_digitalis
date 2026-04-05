@@ -2,10 +2,11 @@ package com.example.hellodigitalis.screenshottest;
 
 import android.app.Instrumentation;
 import android.app.UiAutomation;
+import android.content.ComponentName;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -60,8 +61,12 @@ public class ScreenshotTestRule implements TestRule {
     public void assertMatchesReference(String referenceAssetName) {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
 
-        // Launch the activity (needs UiAutomation for elevated shell permissions)
-        executeUiAutomationCommand("am start -W -n " + componentName);
+        // Launch the activity via explicit Intent
+        String[] parts = componentName.split("/");
+        Intent intent = new Intent();
+        intent.setComponent(new ComponentName(parts[0], parts[1]));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        instrumentation.getContext().startActivity(intent);
 
         // Wait for rendering to stabilize
         try {
@@ -187,31 +192,4 @@ public class ScreenshotTestRule implements TestRule {
         }
     }
 
-    /**
-     * Execute a shell command via UiAutomation (elevated permissions, needed for am start).
-     * Drains output on a daemon thread to prevent FD leaks that hang instrumentation.
-     */
-    /**
-     * Execute a shell command via UiAutomation (elevated permissions, needed for am start).
-     * Drains output on a daemon thread to prevent FD leaks that hang instrumentation.
-     */
-    private void executeUiAutomationCommand(String command) {
-        try {
-            ParcelFileDescriptor pfd = uiAutomation.executeShellCommand(command);
-            // Drain output on a daemon thread to prevent FD leak
-            Thread drainer = new Thread(() -> {
-                try (InputStream is = new ParcelFileDescriptor.AutoCloseInputStream(pfd)) {
-                    byte[] buf = new byte[1024];
-                    while (is.read(buf) != -1) { /* drain */ }
-                } catch (IOException ignored) { }
-            });
-            drainer.setDaemon(true);
-            drainer.start();
-            drainer.join(5000); // Wait up to 5 seconds for drain
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            Log.e(TAG, "Shell command failed: " + command, e);
-        }
-    }
 }
