@@ -38,6 +38,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | sanitizers | Address/UB sanitizer demo (HWASan/ASan/UBSan) | `./gradlew :sanitizers:assembleDebug` |
 | unit-test | Native unit testing with GoogleTest via Prefab | `./gradlew :unit-test:assembleDebug` |
 | vectorization | SIMD vectorization benchmarks (matrix multiplication) | `./gradlew :vectorization:assembleDebug` |
+| orderfile | Binary optimization with linker order files | `./gradlew :orderfile:assembleDebug` |
 
 ## Prerequisites
 
