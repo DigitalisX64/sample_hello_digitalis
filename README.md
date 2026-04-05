@@ -30,6 +30,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | native-midi | Android Native MIDI API (requires Android 10+) | `./gradlew :native-midi:assembleDebug` |
 | sensor-graph | Accelerometer sensor visualization with OpenGL | `./gradlew :sensor-graph:assembleDebug` |
 | camera-basic | Camera2 NDK preview and JPEG capture | `./gradlew :camera-basic:assembleDebug` |
+| camera-texture-view | Camera preview with TextureView rendering | `./gradlew :camera-texture-view:assembleDebug` |
 
 ## Prerequisites
 
