@@ -63,3 +63,46 @@ adb shell am start -n com.example.hellodigitalis/android.app.NativeActivity
 ```
 
 The apps are ARM64-only (`arm64-v8a`). They will not run on x86_64 devices without NativeBridge binary translation.
+
+## Digitalis Compatibility
+
+Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| hello-vulkan | PASS | Renders Vulkan triangle correctly |
+| hello-jni | CRASH | Missing CNT (popcount) instruction in translator |
+| hello-jniCallback | CRASH | Same CNT instruction issue |
+| exceptions | PASS | C++ exceptions work across JNI |
+| bitmap-plasma | CRASH | SIGILL — missing SIMD FP instructions |
+| hello-gl2 | CRASH | SIGILL in GL thread — missing SIMD FP |
+| gles3jni | PASS | GLES 3.0 instanced rendering works |
+| native-activity | PASS | NativeActivity with EGL/GLES works |
+| native-audio | PASS | OpenSL ES audio works |
+| native-codec | PASS | Media codec playback works |
+| native-midi | PASS | MIDI API loads (no device on emulator) |
+| sensor-graph | CRASH | Likely missing SIMD instructions |
+| camera-basic | CRASH | Likely missing instructions or camera proxy |
+| camera-texture-view | CRASH | Same as camera-basic |
+| teapots-classic | CRASH | Likely missing SIMD/FP instructions |
+| teapots-more | CRASH | Same |
+| teapots-textured | CRASH | Same |
+| endless-tunnel | CRASH | SIGILL — missing SIMD FP multiply |
+| sanitizers | CRASH | Sanitizer runtime incompatible with translation |
+| unit-test | CRASH | GoogleTest init hits missing instructions |
+| vectorization | PASS | SIMD benchmarks run (basic paths) |
+| orderfile | CRASH | Missing instructions during init |
+
+**8 PASS / 14 CRASH**
+
+### Common Crash Root Causes
+
+Most crashes trace to 3 missing ARM64 instructions in the Berberis translator:
+
+1. **`CNT V0.8B` (0x0e205800)** — AdvSIMD population count. Used by bionic's `__popcountsi2`. Blocks hello-jni, hello-jniCallback, and many others during libc init.
+2. **`FMUL Vd.2D` (0x6ee04425)** — AdvSIMD floating-point multiply (double-precision). Used by math libraries. Blocks bitmap-plasma, hello-gl2, endless-tunnel.
+3. **`UCVTF Dd, Xn` (0x9e230100)** — Scalar unsigned int-to-FP conversion. Used by various runtime paths.
+
+### Fix Plan
+
+Implementing these 3 instructions in the interpreter (`interpreter/arm64/interpreter.h`) and optionally the JIT (`lite_translator/arm64_to_x86_64/lite_translator.h`) should unblock most of the 14 crashing modules. The remaining crashes (camera, sanitizers) may need additional proxy libraries or runtime support.
