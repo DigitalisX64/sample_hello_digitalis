@@ -24,6 +24,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | bitmap-plasma | Plasma effect rendered to Android Bitmap via JNI | `./gradlew :bitmap-plasma:assembleDebug` |
 | hello-gl2 | OpenGL ES 2.0 triangle via JNI | `./gradlew :hello-gl2:assembleDebug` |
 | gles3jni | OpenGL ES 3.0 with instanced rendering | `./gradlew :gles3jni:assembleDebug` |
+| native-activity | Pure C++ NativeActivity with EGL/GLES rendering | `./gradlew :native-activity:assembleDebug` |
 
 ## Prerequisites
 
