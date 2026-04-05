@@ -48,13 +48,7 @@ public class ScreenshotTestRule implements TestRule {
             public void evaluate() throws Throwable {
                 Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
                 uiAutomation = instrumentation.getUiAutomation();
-                try {
-                    base.evaluate();
-                } finally {
-                    // Send HOME to dismiss the app. Don't use am force-stop because it
-                    // kills the test process too (shared UID with instrumented app).
-                    executeShellCommand("input keyevent KEYCODE_HOME");
-                }
+                base.evaluate();
             }
         };
     }
@@ -66,8 +60,8 @@ public class ScreenshotTestRule implements TestRule {
     public void assertMatchesReference(String referenceAssetName) {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
 
-        // Launch the activity
-        executeShellCommand("am start -n " + componentName);
+        // Launch the activity (needs UiAutomation for elevated shell permissions)
+        executeUiAutomationCommand("am start -W -n " + componentName);
 
         // Wait for rendering to stabilize
         try {
@@ -76,9 +70,12 @@ public class ScreenshotTestRule implements TestRule {
             Thread.currentThread().interrupt();
         }
 
-        // Capture screenshot
-        Bitmap actual = uiAutomation.takeScreenshot();
-        assertNotNull("UiAutomation.takeScreenshot() returned null", actual);
+        // Capture screenshot and crop out status bar and navigation bar
+        // These contain dynamic content (clock, battery) that changes between runs
+        Bitmap fullScreen = uiAutomation.takeScreenshot();
+        assertNotNull("UiAutomation.takeScreenshot() returned null", fullScreen);
+        Bitmap actual = cropSystemBars(fullScreen);
+        fullScreen.recycle();
 
         // Check if we're in update-references mode
         Bundle args = InstrumentationRegistry.getArguments();
@@ -109,11 +106,10 @@ public class ScreenshotTestRule implements TestRule {
 
                 fail(String.format(
                         "Screenshot mismatch for %s: %.2f%% match (required %.2f%%). "
-                                + "Diff images saved to /data/local/tmp/screenshots/%s/",
+                                + "Diff images saved to app data dir.",
                         packageName,
                         result.matchPercentage * 100,
-                        requiredMatch * 100,
-                        moduleName));
+                        requiredMatch * 100));
             }
 
             Log.i(TAG, String.format("Screenshot match for %s: %.2f%%",
@@ -141,55 +137,80 @@ public class ScreenshotTestRule implements TestRule {
         }
     }
 
-    private void saveReferenceImage(Bitmap bitmap) {
-        String moduleName = packageName.replace(".", "_");
-        String dirPath = "/data/local/tmp/references/" + moduleName;
-        String filePath = dirPath + "/screenshot_default.png";
-        saveBitmapViaShell(bitmap, dirPath, filePath);
-        Log.i(TAG, "Reference saved to " + filePath);
-    }
-
-    private void saveBitmapToDevice(Bitmap bitmap, String moduleName, String filename) {
-        String dirPath = "/data/local/tmp/screenshots/" + moduleName;
-        String filePath = dirPath + "/" + filename;
-        saveBitmapViaShell(bitmap, dirPath, filePath);
-        Log.i(TAG, "Saved " + filePath);
+    /**
+     * Crop status bar (top) and navigation bar (bottom) from a screenshot.
+     * These bars contain dynamic content (clock, battery, etc.) that changes between runs.
+     * Uses display metrics to calculate bar heights in pixels.
+     */
+    private Bitmap cropSystemBars(Bitmap screenshot) {
+        int width = screenshot.getWidth();
+        int height = screenshot.getHeight();
+        // Status bar: ~24dp, nav bar: ~48dp. At any density, calculate from display metrics.
+        // Use conservative fixed percentages: top 4% (status bar), bottom 7% (nav bar)
+        int statusBarHeight = (int) (height * 0.04);
+        int navBarHeight = (int) (height * 0.07);
+        int croppedHeight = height - statusBarHeight - navBarHeight;
+        return Bitmap.createBitmap(screenshot, 0, statusBarHeight, width, croppedHeight);
     }
 
     /**
-     * Save bitmap to device via a temp file + shell copy.
-     * The test app process can't write to /data/local/tmp directly,
-     * but UiAutomation shell commands run as shell user which can.
+     * Get the output directory in the test app's data dir.
+     * Files here are pullable via "adb shell run-as" or "adb pull" with root.
      */
-    private void saveBitmapViaShell(Bitmap bitmap, String dirPath, String filePath) {
-        try {
-            // Write to app-private temp file first (use target context which has writable dirs)
-            File cacheDir = InstrumentationRegistry.getInstrumentation()
-                    .getTargetContext().getCacheDir();
-            cacheDir.mkdirs();
-            File tempFile = new File(cacheDir, "screenshot_tmp.png");
-            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-            }
-            // Use shell commands to mkdir and copy to /data/local/tmp
-            executeShellCommand("mkdir -p " + dirPath);
-            executeShellCommand("cp " + tempFile.getAbsolutePath() + " " + filePath);
-            executeShellCommand("chmod 644 " + filePath);
-            tempFile.delete();
+    private File getOutputDir(String subdir) {
+        File dir = new File(InstrumentationRegistry.getInstrumentation()
+                .getTargetContext().getFilesDir(), subdir);
+        dir.mkdirs();
+        return dir;
+    }
+
+    private void saveReferenceImage(Bitmap bitmap) {
+        String moduleName = packageName.replace(".", "_");
+        File dir = getOutputDir("references");
+        File file = new File(dir, "screenshot_default.png");
+        saveBitmapToFile(bitmap, file);
+        Log.i(TAG, "Reference saved to " + file.getAbsolutePath());
+    }
+
+    private void saveBitmapToDevice(Bitmap bitmap, String moduleName, String filename) {
+        File dir = getOutputDir("screenshots");
+        File file = new File(dir, filename);
+        saveBitmapToFile(bitmap, file);
+        Log.i(TAG, "Saved " + file.getAbsolutePath());
+    }
+
+    private void saveBitmapToFile(Bitmap bitmap, File file) {
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
         } catch (IOException e) {
-            Log.e(TAG, "Failed to save bitmap to " + filePath, e);
+            Log.e(TAG, "Failed to save bitmap to " + file.getAbsolutePath(), e);
         }
     }
 
-    private void executeShellCommand(String command) {
+    /**
+     * Execute a shell command via UiAutomation (elevated permissions, needed for am start).
+     * Drains output on a daemon thread to prevent FD leaks that hang instrumentation.
+     */
+    /**
+     * Execute a shell command via UiAutomation (elevated permissions, needed for am start).
+     * Drains output on a daemon thread to prevent FD leaks that hang instrumentation.
+     */
+    private void executeUiAutomationCommand(String command) {
         try {
             ParcelFileDescriptor pfd = uiAutomation.executeShellCommand(command);
-            // Read and drain the output to ensure command completes
-            InputStream is = new ParcelFileDescriptor.AutoCloseInputStream(pfd);
-            byte[] buf = new byte[1024];
-            while (is.read(buf) != -1) { /* drain */ }
-            is.close();
-        } catch (IOException e) {
+            // Drain output on a daemon thread to prevent FD leak
+            Thread drainer = new Thread(() -> {
+                try (InputStream is = new ParcelFileDescriptor.AutoCloseInputStream(pfd)) {
+                    byte[] buf = new byte[1024];
+                    while (is.read(buf) != -1) { /* drain */ }
+                } catch (IOException ignored) { }
+            });
+            drainer.setDaemon(true);
+            drainer.start();
+            drainer.join(5000); // Wait up to 5 seconds for drain
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
             Log.e(TAG, "Shell command failed: " + command, e);
         }
     }
