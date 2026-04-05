@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "hello-digitalis"
 include ':hello-vulkan'
 include ':hello-jni'
+include ':hello-jniCallback'
