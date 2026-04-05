@@ -1,0 +1,74 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+android {
+    namespace 'com.example.hellodigitalis.sanitizers'
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.example.hellodigitalis.sanitizers"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    buildTypes {
+        debug {
+            matchingFallbacks = ["debug"]
+        }
+        release { minifyEnabled false }
+        hwasan {
+            initWith debug
+            debuggable true
+            packagingOptions {
+                jniLibs {
+                    useLegacyPackaging = true
+                }
+            }
+            externalNativeBuild {
+                cmake {
+                    arguments "-DANDROID_STL=c++_shared", "-DSANITIZE=hwasan"
+                }
+            }
+        }
+        asan {
+            initWith debug
+            debuggable true
+            packagingOptions {
+                jniLibs {
+                    useLegacyPackaging true
+                }
+            }
+            externalNativeBuild {
+                cmake {
+                    arguments "-DANDROID_ARM_MODE=arm", "-DANDROID_STL=c++_shared", "-DSANITIZE=asan"
+                }
+            }
+        }
+        ubsan {
+            initWith debug
+            externalNativeBuild {
+                cmake {
+                    arguments "-DSANITIZE=ubsan"
+                }
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions { jvmTarget = '1.8' }
+    externalNativeBuild {
+        cmake { path "src/main/cpp/CMakeLists.txt"; version "3.22.1" }
+    }
+    buildFeatures {
+        viewBinding true
+    }
+}
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+}

@@ -35,6 +35,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | teapots-more | GLES 3.0 instanced teapots rendering | `./gradlew :teapots-more:assembleDebug` |
 | teapots-textured | Textured teapot with ImageDecoder (Android 11+) | `./gradlew :teapots-textured:assembleDebug` |
 | endless-tunnel | 3D tunnel game with scene management and GLES 2.0 | `./gradlew :endless-tunnel:assembleDebug` |
+| sanitizers | Address/UB sanitizer demo (HWASan/ASan/UBSan) | `./gradlew :sanitizers:assembleDebug` |
 
 ## Prerequisites
 
