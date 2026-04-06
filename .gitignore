@@ -13,3 +13,5 @@
 **/build/
 **/.cxx/
 .kotlin
+sanitizers/src/asan/
+sanitizers/src/ubsan/
