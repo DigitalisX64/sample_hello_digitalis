@@ -12,3 +12,4 @@
 *.dex
 **/build/
 **/.cxx/
+.kotlin

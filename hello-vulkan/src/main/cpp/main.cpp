@@ -42,8 +42,8 @@ void android_main(struct android_app* app) {
         int events;
         struct android_poll_source* source;
 
-        while (ALooper_pollAll(g_vulkan_state.initialized ? 0 : -1,
-                               nullptr, &events, (void**)&source) >= 0) {
+        while (ALooper_pollOnce(g_vulkan_state.initialized ? 0 : -1,
+                                nullptr, &events, (void**)&source) >= 0) {
             if (source != nullptr) {
                 source->process(app, source);
             }

@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace 'com.example.hellodigitalis.screenshottest'
-    compileSdk 34
+    compileSdk 35
     defaultConfig {
         minSdk 24
     }
