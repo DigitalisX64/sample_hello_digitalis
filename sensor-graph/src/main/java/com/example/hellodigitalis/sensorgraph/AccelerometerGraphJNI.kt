@@ -14,22 +14,28 @@
  * limitations under the License.
  */
 
-package com.example.hellodigitalis.sensorgraph;
+package com.example.hellodigitalis.sensorgraph
 
 // Wrapper for native library
 
-import android.content.res.AssetManager;
+import android.content.res.AssetManager
 
-public class AccelerometerGraphJNI {
+object AccelerometerGraphJNI {
 
-     static {
-         System.loadLibrary("accelerometergraph");
-     }
+    init {
+        System.loadLibrary("accelerometergraph")
+    }
 
-     public static native void init(AssetManager assetManager);
-     public static native void surfaceCreated();
-     public static native void surfaceChanged(int width, int height);
-     public static native void drawFrame();
-     public static native void pause();
-     public static native void resume();
+    @JvmStatic
+    external fun init(assetManager: AssetManager)
+    @JvmStatic
+    external fun surfaceCreated()
+    @JvmStatic
+    external fun surfaceChanged(width: Int, height: Int)
+    @JvmStatic
+    external fun drawFrame()
+    @JvmStatic
+    external fun pause()
+    @JvmStatic
+    external fun resume()
 }

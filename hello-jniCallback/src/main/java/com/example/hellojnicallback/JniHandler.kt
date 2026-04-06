@@ -14,11 +14,11 @@
  * limitations under the License.
  *
  */
-package com.example.hellojnicallback;
+package com.example.hellojnicallback
 
-import android.os.Build;
-import androidx.annotation.Keep;
-import android.util.Log;
+import android.os.Build
+import android.util.Log
+import androidx.annotation.Keep
 
 /*
  * A helper class to demo that JNI could call into:
@@ -27,32 +27,35 @@ import android.util.Log;
  *     static public function
  * The calling code is inside hello-jnicallback.c
  */
-public class JniHandler {
+class JniHandler {
     /*
      * Print out status to logcat
      */
     @Keep
-    private void updateStatus(String msg) {
-        if (msg.toLowerCase().contains("error")) {
-            Log.e("JniHandler", "Native Err: " + msg);
+    private fun updateStatus(msg: String) {
+        if (msg.lowercase().contains("error")) {
+            Log.e("JniHandler", "Native Err: $msg")
         } else {
-            Log.i("JniHandler", "Native Msg: " + msg);
+            Log.i("JniHandler", "Native Msg: $msg")
         }
-    }
-
-    /*
-     * Return OS build version: a static function
-     */
-    @Keep
-    static public String getBuildVersion() {
-        return Build.VERSION.RELEASE;
     }
 
     /*
      * Return Java memory info
      */
     @Keep
-    public long getRuntimeMemorySize() {
-        return Runtime.getRuntime().freeMemory();
+    fun getRuntimeMemorySize(): Long {
+        return Runtime.getRuntime().freeMemory()
+    }
+
+    companion object {
+        /*
+         * Return OS build version: a static function
+         */
+        @Keep
+        @JvmStatic
+        fun getBuildVersion(): String {
+            return Build.VERSION.RELEASE
+        }
     }
 }
