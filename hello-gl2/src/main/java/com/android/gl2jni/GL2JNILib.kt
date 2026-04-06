@@ -14,33 +14,22 @@
  * limitations under the License.
  */
 
-package com.android.gl2jni;
+package com.android.gl2jni
 
-import android.app.Activity;
-import android.os.Bundle;
-import android.util.Log;
-import android.view.WindowManager;
+// Wrapper for native library
 
-import java.io.File;
+object GL2JNILib {
 
-
-public class GL2JNIActivity extends Activity {
-
-    GL2JNIView mView;
-
-    @Override protected void onCreate(Bundle icicle) {
-        super.onCreate(icicle);
-        mView = new GL2JNIView(getApplication());
-        setContentView(mView);
+    init {
+        System.loadLibrary("gl2jni")
     }
 
-    @Override protected void onPause() {
-        super.onPause();
-        mView.onPause();
-    }
-
-    @Override protected void onResume() {
-        super.onResume();
-        mView.onResume();
-    }
+    /**
+     * @param width the current view width
+     * @param height the current view height
+     */
+    @JvmStatic
+    external fun init(width: Int, height: Int)
+    @JvmStatic
+    external fun step()
 }

@@ -14,32 +14,28 @@
  * limitations under the License.
  */
 
-package com.android.gles3jni;
+package com.android.gles3jni
 
-import android.app.Activity;
-import android.os.Bundle;
-import android.util.Log;
-import android.view.WindowManager;
+import android.app.Activity
+import android.os.Bundle
 
-import java.io.File;
+class GLES3JNIActivity : Activity() {
 
-public class GLES3JNIActivity extends Activity {
+    lateinit var mView: GLES3JNIView
 
-    GLES3JNIView mView;
-
-    @Override protected void onCreate(Bundle icicle) {
-        super.onCreate(icicle);
-        mView = new GLES3JNIView(getApplication());
-        setContentView(mView);
+    override fun onCreate(icicle: Bundle?) {
+        super.onCreate(icicle)
+        mView = GLES3JNIView(application)
+        setContentView(mView)
     }
 
-    @Override protected void onPause() {
-        super.onPause();
-        mView.onPause();
+    override fun onPause() {
+        super.onPause()
+        mView.onPause()
     }
 
-    @Override protected void onResume() {
-        super.onResume();
-        mView.onResume();
+    override fun onResume() {
+        super.onResume()
+        mView.onResume()
     }
 }

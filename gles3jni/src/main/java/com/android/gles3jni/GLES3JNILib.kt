@@ -14,17 +14,20 @@
  * limitations under the License.
  */
 
-package com.android.gles3jni;
+package com.android.gles3jni
 
 // Wrapper for native library
 
-public class GLES3JNILib {
+object GLES3JNILib {
 
-     static {
-          System.loadLibrary("gles3jni");
-     }
+    init {
+        System.loadLibrary("gles3jni")
+    }
 
-     public static native void init();
-     public static native void resize(int width, int height);
-     public static native void step();
+    @JvmStatic
+    external fun init()
+    @JvmStatic
+    external fun resize(width: Int, height: Int)
+    @JvmStatic
+    external fun step()
 }

@@ -14,20 +14,28 @@
  * limitations under the License.
  */
 
-package com.android.gl2jni;
+package com.android.gl2jni
 
-// Wrapper for native library
+import android.app.Activity
+import android.os.Bundle
 
-public class GL2JNILib {
+class GL2JNIActivity : Activity() {
 
-     static {
-         System.loadLibrary("gl2jni");
-     }
+    lateinit var mView: GL2JNIView
 
-    /**
-     * @param width the current view width
-     * @param height the current view height
-     */
-     public static native void init(int width, int height);
-     public static native void step();
+    override fun onCreate(icicle: Bundle?) {
+        super.onCreate(icicle)
+        mView = GL2JNIView(application)
+        setContentView(mView)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        mView.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mView.onResume()
+    }
 }
