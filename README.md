@@ -75,9 +75,13 @@ Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
 
 **26 PASS / 0 CRASH** for the original sample modules; the new `hello-fp-vector` regression sample is PARTIAL (3/5 vector-FP ops pass — see the table below).
 
-### Optional submodule: VulkanCapsViewer
+### Required smoke target: VulkanCapsViewer
 
-The repo also pulls Sascha Willems' [VulkanCapsViewer](https://github.com/SaschaWillems/VulkanCapsViewer) tag 4.11 as a git submodule under `vulkancapsviewer/` for end-to-end translation testing. It's a Qt 6 app — `vulkancapsviewer-test/` wraps it with a smoke-test runner that installs a pre-built APK and watches logcat for crashes. See `vulkancapsviewer-test/README.md` for setup. The submodule is opt-in: pass `--submodules` to `repo sync`, or `sync-s="true"` is already set on the `sample/hellodigitalis` entry in `.repo/manifests/digitalis.xml` so a normal sync pulls it.
+`vulkancapsviewer/` pins Sascha Willems' [VulkanCapsViewer](https://github.com/SaschaWillems/VulkanCapsViewer) at tag 4.11 as a git submodule, with `Vulkan-Headers` v1.4.340 as its sub-submodule. `vulkancapsviewer-test/` wraps it with a smoke-test runner (`test.sh`) that installs a pre-built APK on the connected Digitalis emulator, launches the Qt activity, and watches logcat for `Undefined arm64 instruction` / `FATAL EXCEPTION` / process death.
+
+This is a **required** end-to-end translation test, not optional — it's the cross-check that the FMUL `.4S` / PAC / interpreter-fallback fixes hold together on a real Qt+Vulkan workload rather than just the unit-style `hello-fp-vector` probe. The submodules are pulled automatically by `repo sync` (the `sample/hellodigitalis` entry in `.repo/manifests/digitalis.xml` carries `sync-s="true"`) or with `git submodule update --init --recursive` in a manual clone.
+
+See `vulkancapsviewer-test/README.md` for the two paths to obtain the APK (upstream GitHub release, or a Qt-SDK build from the submodule).
 
 | Module | Status | Notes |
 |--------|--------|-------|

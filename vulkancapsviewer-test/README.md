@@ -1,8 +1,13 @@
-# vulkancapsviewer-test — Digitalis smoke test wrapper for Vulkan Caps Viewer
+# vulkancapsviewer-test — required Digitalis smoke target
 
-A custom test target that exercises Sascha Willems' upstream **Vulkan Caps
-Viewer** (https://github.com/SaschaWillems/VulkanCapsViewer) under
-Digitalis binary translation, without modifying any upstream source.
+A required end-to-end test target that exercises Sascha Willems' upstream
+**Vulkan Caps Viewer** (https://github.com/SaschaWillems/VulkanCapsViewer)
+under Digitalis binary translation, without modifying any upstream source.
+
+This target is **not optional**: it's the cross-check that the FMUL `.4S`,
+PAC/TBI, and interpreter-fallback fixes hold together on a real Qt 6 +
+Vulkan workload rather than just the unit-style `hello-fp-vector` probe.
+`test-samples.sh` invokes it as the final step.
 
 The upstream sits at `../vulkancapsviewer/`, pinned to tag **4.11**
 (commit `65b603f`), brought in as a git submodule. Its own submodule
