@@ -39,6 +39,10 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | unit-test           | Native unit testing with GoogleTest via Prefab        | `./gradlew :unit-test:assembleDebug`           |
 | vectorization       | SIMD vectorization benchmarks (matrix multiplication) | `./gradlew :vectorization:assembleDebug`       |
 | orderfile           | Binary optimization with linker order files           | `./gradlew :orderfile:assembleDebug`           |
+| hello-gles1         | GLES 1.x proxy-lib smoke test (`libGLESv1_CM`)        | `./gradlew :hello-gles1:assembleDebug`         |
+| hello-aaudio        | AAudio proxy-lib smoke test (`libaaudio`)             | `./gradlew :hello-aaudio:assembleDebug`        |
+| hello-binder-ndk    | NDK Binder proxy-lib smoke test (`libbinder_ndk`)     | `./gradlew :hello-binder-ndk:assembleDebug`    |
+| hello-nnapi         | NNAPI proxy-lib smoke test (`libneuralnetworks`)      | `./gradlew :hello-nnapi:assembleDebug`         |
 
 ## Prerequisites
 
@@ -68,7 +72,7 @@ The apps are ARM64-only (`arm64-v8a`). They will not run on x86_64 devices witho
 
 Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
 
-**22 PASS / 0 CRASH** — all modules run successfully.
+**26 PASS / 0 CRASH** — all modules run successfully.
 
 | Module | Status | Notes |
 |--------|--------|-------|
@@ -94,8 +98,11 @@ Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
 | unit-test | PASS | GoogleTest runs |
 | vectorization | PASS | SIMD benchmarks run |
 | orderfile | PASS | Order file demo runs |
+| hello-gles1 | PASS | `glGetError()` resolves through `libberberis_proxy_libGLESv1_CM.so` |
+| hello-aaudio | PASS | `AAudio_createStreamBuilder` resolves through `libberberis_proxy_libaaudio.so` |
+| hello-binder-ndk | PASS | `AIBinder_Class_define` / `AIBinder_new` resolve through `libberberis_proxy_libbinder_ndk.so` |
+| hello-nnapi | PASS | `ANeuralNetworks_getDeviceCount` resolves through `libberberis_proxy_libneuralnetworks.so` |
 
 ### Known Workarounds
 
-- **teapots-textured**: `std::ifstream` construction can throw under binary translation due to `std::locale` initialization. Wrapped in try-catch to fall through to `AAssetManager` path (the correct approach for APK assets anyway).
-- **gles3jni**: Shader source uses `#version 300 es` with `precision mediump float` — required explicit precision qualifiers for compatibility.
+- **teapots-textured** (`ndk_helper/JNIHelper.cpp`): `std::ifstream` construction is wrapped in `try { … } catch (...)` and falls through to `AAssetManager` on any exception. The fallback path is the standard way to read APK assets anyway, so this is the right shape long-term whether or not the translator-side issue (`std::locale` construction throwing) is later fixed.
