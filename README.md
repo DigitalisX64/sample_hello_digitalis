@@ -43,6 +43,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | hello-aaudio        | AAudio proxy-lib smoke test (`libaaudio`)             | `./gradlew :hello-aaudio:assembleDebug`        |
 | hello-binder-ndk    | NDK Binder proxy-lib smoke test (`libbinder_ndk`)     | `./gradlew :hello-binder-ndk:assembleDebug`    |
 | hello-nnapi         | NNAPI proxy-lib smoke test (`libneuralnetworks`)      | `./gradlew :hello-nnapi:assembleDebug`         |
+| hello-fp-vector     | NEON vector FP three-same regression (FMUL/FADD/FSUB/FMLA/FMLS on `.4S` and `.2D`) | `./gradlew :hello-fp-vector:assembleDebug`     |
 
 ## Prerequisites
 
@@ -72,7 +73,11 @@ The apps are ARM64-only (`arm64-v8a`). They will not run on x86_64 devices witho
 
 Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
 
-**26 PASS / 0 CRASH** — all modules run successfully.
+**26 PASS / 0 CRASH** for the original sample modules; the new `hello-fp-vector` regression sample is PARTIAL (3/5 vector-FP ops pass — see the table below).
+
+### Optional submodule: VulkanCapsViewer
+
+The repo also pulls Sascha Willems' [VulkanCapsViewer](https://github.com/SaschaWillems/VulkanCapsViewer) tag 4.11 as a git submodule under `vulkancapsviewer/` for end-to-end translation testing. It's a Qt 6 app — `vulkancapsviewer-test/` wraps it with a smoke-test runner that installs a pre-built APK and watches logcat for crashes. See `vulkancapsviewer-test/README.md` for setup. The submodule is opt-in: pass `--submodules` to `repo sync`, or `sync-s="true"` is already set on the `sample/hellodigitalis` entry in `.repo/manifests/digitalis.xml` so a normal sync pulls it.
 
 | Module | Status | Notes |
 |--------|--------|-------|
@@ -102,6 +107,7 @@ Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
 | hello-aaudio | PASS | `AAudio_createStreamBuilder` resolves through `libberberis_proxy_libaaudio.so` |
 | hello-binder-ndk | PASS | `AIBinder_Class_define` / `AIBinder_new` resolve through `libberberis_proxy_libbinder_ndk.so` |
 | hello-nnapi | PASS | `ANeuralNetworks_getDeviceCount` resolves through `libberberis_proxy_libneuralnetworks.so` |
+| hello-fp-vector | PARTIAL | `.4S`/`.2D` FMUL/FADD/FSUB pass; FMLA/FMLS still fail pending the JIT→interpreter Vd-flush fix (see translator commit notes) |
 
 ### Known Workarounds
 
