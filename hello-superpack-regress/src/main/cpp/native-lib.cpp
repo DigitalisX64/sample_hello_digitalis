@@ -243,6 +243,51 @@ bool probe_ldr_sxtw_negative() {
 }
 
 // ---------------------------------------------------------------------------
+// LDP base-register aliasing: when LDP's first dest aliases the base
+// register, the JIT used to commit the first load via SetReg BEFORE
+// emitting the second load — clobbering the base. The second load then
+// read from (val1 + scale) instead of (base + scale). Observed as
+// WhatsApp's libsuperpack.so SIGSEGV at 0x624c000010cc0000 in the
+// `ldp x0, x8, [x0]` vtable dispatcher.
+// Fixed in `Digitalis: LDP must not clobber base register before second load`.
+// ---------------------------------------------------------------------------
+bool probe_ldp_base_aliases_first_dest() {
+  alignas(16) uint64_t mem[2] = {0xabcdef0123456789ULL, 0x55aa55aa55aa55aaULL};
+  uint64_t* base = mem;
+  // ldp x0, x1, [x0]  — x0 is BOTH first dest and base.
+  uint64_t r0, r1;
+  asm volatile(
+      "mov x0, %2\n"
+      "ldp x0, x1, [x0]\n"
+      "mov %0, x0\n"
+      "mov %1, x1\n"
+      : "=r"(r0), "=r"(r1)
+      : "r"(base)
+      : "x0", "x1", "memory");
+  // x0 must be mem[0]; x1 must be mem[1]. If the JIT clobbered the base
+  // before the second load, x1 would be loaded from (mem[0] + 8) which is
+  // way off into garbage memory and likely SIGSEGV.
+  return r0 == 0xabcdef0123456789ULL && r1 == 0x55aa55aa55aa55aaULL;
+}
+
+bool probe_ldp_base_aliases_second_dest() {
+  alignas(16) uint64_t mem[2] = {0x1111222233334444ULL, 0x5555666677778888ULL};
+  uint64_t* base = mem;
+  // ldp x1, x0, [x0]  — x0 is the base AND the second dest.
+  uint64_t r0, r1;
+  asm volatile(
+      "mov x0, %2\n"
+      "ldp x1, x0, [x0]\n"
+      "mov %0, x0\n"
+      "mov %1, x1\n"
+      : "=r"(r0), "=r"(r1)
+      : "r"(base)
+      : "x0", "x1", "memory");
+  // x1 = mem[0], x0 = mem[1].
+  return r0 == 0x5555666677778888ULL && r1 == 0x1111222233334444ULL;
+}
+
+// ---------------------------------------------------------------------------
 // USHL .2D INT8_MIN shift edge case: previously the JIT/interp computed
 // `-shift` as int8_t, overflowing on shift=-128 and producing wrong
 // result. Fixed in `Digitalis: TBI mask, ASR Wd zero-ext, UBFM general
@@ -289,6 +334,8 @@ Java_com_example_hellosuperpackregress_MainActivity_probeRegressions(
       {"UBFX_W", probe_ubfx_w},
       {"LDR_UXTW", probe_ldr_uxtw},
       {"LDR_SXTW_neg", probe_ldr_sxtw_negative},
+      {"LDP_base=dest1", probe_ldp_base_aliases_first_dest},
+      {"LDP_base=dest2", probe_ldp_base_aliases_second_dest},
       {"USHL_2D_int8min", probe_ushl_2d_int8_min},
   };
 
