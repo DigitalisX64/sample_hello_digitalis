@@ -199,6 +199,92 @@ FP16_OP_1SRC(frinta)
 FP16_OP_1SRC(frintx)
 FP16_OP_1SRC(frinti)
 
+// FCVT scalar between-precisions probes (FpDataProc1 opcode 0b000100 /
+// 0b000101 / 0b000111).  Each one loads a single half/single/double input
+// from memory, executes the convert, and stores the result back as raw
+// bits so the reference (computed via host float arithmetic) can be
+// compared bit-for-bit.  The JIT lowering writes the result into lane 0
+// of a zero-filled XMM and stores the full 128 bits, so the str
+// instruction below sees the ARM scalar layout [val_in_low_N, 0×rest].
+
+// FCVT Sd, Hn — half -> single.
+uint32_t fp_fcvt_s_h(uint16_t a) {
+  uint32_t r;
+  asm volatile(
+      "ldr h1, [%[pa]]\n\t"
+      "fcvt s0, h1\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
+// FCVT Dd, Hn — half -> double.
+uint64_t fp_fcvt_d_h(uint16_t a) {
+  uint64_t r;
+  asm volatile(
+      "ldr h1, [%[pa]]\n\t"
+      "fcvt d0, h1\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
+// FCVT Hd, Sn — single -> half.
+uint16_t fp_fcvt_h_s(uint32_t a) {
+  uint16_t r;
+  asm volatile(
+      "ldr s1, [%[pa]]\n\t"
+      "fcvt h0, s1\n\t"
+      "str h0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
+// FCVT Hd, Dn — double -> half.
+uint16_t fp_fcvt_h_d(uint64_t a) {
+  uint16_t r;
+  asm volatile(
+      "ldr d1, [%[pa]]\n\t"
+      "fcvt h0, d1\n\t"
+      "str h0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
+// FCVT Dd, Sn — single -> double.
+uint64_t fp_fcvt_d_s(uint32_t a) {
+  uint64_t r;
+  asm volatile(
+      "ldr s1, [%[pa]]\n\t"
+      "fcvt d0, s1\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
+// FCVT Sd, Dn — double -> single.
+uint32_t fp_fcvt_s_d(uint64_t a) {
+  uint32_t r;
+  asm volatile(
+      "ldr d1, [%[pa]]\n\t"
+      "fcvt s0, d1\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&a), [pr] "r"(&r)
+      : "v0", "v1", "memory");
+  return r;
+}
+
 // FCSEL Hd, Hn, Hm, eq.  Use cmp w0, #1 to set Z=1 (eq) or Z=0 (ne).
 uint16_t fp16_fcsel_eq(uint16_t hn, uint16_t hm, bool select_n) {
   uint16_t r;
@@ -535,6 +621,33 @@ bool check(std::string& report, char (&buf)[256], const char* name,
   return ok;
 }
 
+// Overloads for FCVT cross-precision probes that produce binary32 / binary64
+// payloads.  Exact bit-equality only — finite inputs land bit-exact through
+// the JIT's CVT/VCVT chain, so no NaN-payload softening is needed.
+bool check(std::string& report, char (&buf)[256], const char* name,
+           uint32_t actual, uint32_t expected) {
+  bool ok = (actual == expected);
+  std::snprintf(buf, sizeof(buf),
+                "%-20s actual=0x%08x expected=0x%08x  %s\n",
+                name, actual, expected, ok ? "OK" : "MISMATCH");
+  report += buf;
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", buf);
+  return ok;
+}
+
+bool check(std::string& report, char (&buf)[256], const char* name,
+           uint64_t actual, uint64_t expected) {
+  bool ok = (actual == expected);
+  std::snprintf(buf, sizeof(buf),
+                "%-20s actual=0x%016llx expected=0x%016llx  %s\n",
+                name, static_cast<unsigned long long>(actual),
+                static_cast<unsigned long long>(expected),
+                ok ? "OK" : "MISMATCH");
+  report += buf;
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", buf);
+  return ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -621,6 +734,73 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
                      ref_1src([](float x) { return std::rint(x); }, h_3p25))) ok++;
   total++; if (check(report, buf, "FRINTI", fp16_frinti(h_3p25),
                      ref_1src([](float x) { return std::rint(x); }, h_3p25))) ok++;
+
+  // FCVT scalar between-precisions probes — FpDataProc1 opcodes 0b000100
+  // (FCVT to "other-1": H->S, D->S), 0b000101 (FCVT to "other-2": S->D,
+  // H->D), 0b000111 (FCVT to half: S->H, D->H).  Reference values are
+  // computed via the host's float/double arithmetic and the same
+  // HalfToSingle / SingleToHalf helpers used by the FP16 scalar probes.
+  // Inputs cover finite values, ±0, and an FP16 subnormal so the
+  // mantissa-renormalization path is exercised at least once.
+  auto u32_of_float = [](float f) {
+    uint32_t bits;
+    std::memcpy(&bits, &f, 4);
+    return bits;
+  };
+  auto u64_of_double = [](double d) {
+    uint64_t bits;
+    std::memcpy(&bits, &d, 8);
+    return bits;
+  };
+
+  // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
+  total++; if (check(report, buf, "FCVT S<-H 1.5",
+                     fp_fcvt_s_h(h_1p5), u32_of_float(HalfToSingle(h_1p5)))) ok++;
+  total++; if (check(report, buf, "FCVT S<-H -1.5",
+                     fp_fcvt_s_h(h_neg1p5), u32_of_float(HalfToSingle(h_neg1p5)))) ok++;
+  total++; if (check(report, buf, "FCVT S<-H 0",
+                     fp_fcvt_s_h(h_zero), u32_of_float(HalfToSingle(h_zero)))) ok++;
+
+  // FCVT Dd, Hn (H->D).
+  total++; if (check(report, buf, "FCVT D<-H 1.5",
+                     fp_fcvt_d_h(h_1p5),
+                     u64_of_double(static_cast<double>(HalfToSingle(h_1p5))))) ok++;
+  total++; if (check(report, buf, "FCVT D<-H 3.25",
+                     fp_fcvt_d_h(h_3p25),
+                     u64_of_double(static_cast<double>(HalfToSingle(h_3p25))))) ok++;
+
+  // FCVT Hd, Sn (S->H).  Use the local SingleToHalf for the reference.
+  total++; if (check(report, buf, "FCVT H<-S 1.5",
+                     fp_fcvt_h_s(u32_of_float(1.5f)), SingleToHalf(1.5f))) ok++;
+  total++; if (check(report, buf, "FCVT H<-S 3.25",
+                     fp_fcvt_h_s(u32_of_float(3.25f)), SingleToHalf(3.25f))) ok++;
+  total++; if (check(report, buf, "FCVT H<-S -2.7",
+                     fp_fcvt_h_s(u32_of_float(-2.7f)), SingleToHalf(-2.7f))) ok++;
+
+  // FCVT Hd, Dn (D->H).  Narrowing twice: D->S->H matches the JIT's
+  // CVTSD2SS + VCVTPS2PH chain.  Run the reference the same way.
+  total++; if (check(report, buf, "FCVT H<-D 1.5",
+                     fp_fcvt_h_d(u64_of_double(1.5)),
+                     SingleToHalf(static_cast<float>(1.5)))) ok++;
+  total++; if (check(report, buf, "FCVT H<-D 3.25",
+                     fp_fcvt_h_d(u64_of_double(3.25)),
+                     SingleToHalf(static_cast<float>(3.25)))) ok++;
+
+  // FCVT Dd, Sn (S->D).  Widening is exact.
+  total++; if (check(report, buf, "FCVT D<-S 1.5",
+                     fp_fcvt_d_s(u32_of_float(1.5f)),
+                     u64_of_double(static_cast<double>(1.5f)))) ok++;
+  total++; if (check(report, buf, "FCVT D<-S -2.7",
+                     fp_fcvt_d_s(u32_of_float(-2.7f)),
+                     u64_of_double(static_cast<double>(-2.7f)))) ok++;
+
+  // FCVT Sd, Dn (D->S).  Narrowing with RNE.
+  total++; if (check(report, buf, "FCVT S<-D 1.5",
+                     fp_fcvt_s_d(u64_of_double(1.5)),
+                     u32_of_float(static_cast<float>(1.5)))) ok++;
+  total++; if (check(report, buf, "FCVT S<-D 3.14159265358979",
+                     fp_fcvt_s_d(u64_of_double(3.14159265358979)),
+                     u32_of_float(static_cast<float>(3.14159265358979)))) ok++;
 
   // FCSEL Hd, Hn, Hm, eq — select_n=true sets Z=1 (eq), so picks Hn.
   total++; if (check(report, buf, "FCSEL=Hn", fp16_fcsel_eq(h_1p5, h_3p5, /*select_n=*/true), h_1p5)) ok++;
