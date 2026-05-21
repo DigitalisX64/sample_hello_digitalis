@@ -760,6 +760,69 @@ bool probe_fcmla_fp16_8h_idx(std::string& report, char (&buf)[256], int rot,
 }
 // endregion
 
+// FRINTA Rd, Rn — round-to-nearest, ties away from zero.  ARM ARM C7.2.119.
+// No native x86 ROUND* imm models ties-away, so the new JIT path lowers to
+// `dst = trunc(src + copysign(0.5, src))`.  These probes confirm the JIT
+// output matches the interpreter for representative inputs across FP16,
+// FP32, and FP64.
+bool probe_frinta_s(std::string& report, char (&buf)[256],
+                    float in, float want) {
+  float out;
+  asm volatile(
+      "ldr s1, [%[pa]]\n\t"
+      "frinta s0, s1\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&in), [pr] "r"(&out)
+      : "v0", "v1", "memory");
+  bool ok = std::isnan(want) ? std::isnan(out) : (out == want);
+  snprintf(buf, sizeof(buf),
+           "  FRINTA s in=%-8g out=%-8g want=%-8g: %s\n",
+           static_cast<double>(in), static_cast<double>(out),
+           static_cast<double>(want), ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+bool probe_frinta_d(std::string& report, char (&buf)[256],
+                    double in, double want) {
+  double out;
+  asm volatile(
+      "ldr d1, [%[pa]]\n\t"
+      "frinta d0, d1\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&in), [pr] "r"(&out)
+      : "v0", "v1", "memory");
+  bool ok = std::isnan(want) ? std::isnan(out) : (out == want);
+  snprintf(buf, sizeof(buf),
+           "  FRINTA d in=%-8g out=%-8g want=%-8g: %s\n",
+           in, out, want, ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+bool probe_frinta_h(std::string& report, char (&buf)[256],
+                    float in, float want) {
+  uint16_t in_h = SingleToHalf(in);
+  uint16_t out_h;
+  asm volatile(
+      "ldr h1, [%[pa]]\n\t"
+      "frinta h0, h1\n\t"
+      "str h0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(&in_h), [pr] "r"(&out_h)
+      : "v0", "v1", "memory");
+  float out = HalfToSingle(out_h);
+  bool ok = std::isnan(want) ? std::isnan(out) : (out == want);
+  snprintf(buf, sizeof(buf),
+           "  FRINTA h in=%-8g out=%-8g want=%-8g: %s\n",
+           static_cast<double>(in), static_cast<double>(out),
+           static_cast<double>(want), ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -819,6 +882,19 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_fp16_8h_idx(report, buf, 90,  0));
   run(probe_fcmla_fp16_8h_idx(report, buf, 270, 3));
   // endregion
+
+  // FRINTA scalar probes — 7 inputs × 3 precisions = 21 probes.
+  // Exercises the new JIT path (handoff-81); the interpreter still owns
+  // any case that bails (none under the current host platform).
+  const struct { float in; float want; } frinta_cases[] = {
+      {0.5f, 1.0f},   {-0.5f, -1.0f}, {1.5f, 2.0f},  {-1.5f, -2.0f},
+      {2.5f, 3.0f},   {0.4f, 0.0f},   {1.7f, 2.0f},
+  };
+  for (const auto& tc : frinta_cases) run(probe_frinta_s(report, buf, tc.in, tc.want));
+  for (const auto& tc : frinta_cases)
+    run(probe_frinta_d(report, buf, static_cast<double>(tc.in),
+                       static_cast<double>(tc.want)));
+  for (const auto& tc : frinta_cases) run(probe_frinta_h(report, buf, tc.in, tc.want));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
