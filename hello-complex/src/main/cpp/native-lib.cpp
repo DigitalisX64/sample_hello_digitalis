@@ -823,6 +823,101 @@ bool probe_frinta_h(std::string& report, char (&buf)[256],
   return ok;
 }
 
+// Vector FP unary (FABS/FNEG/FRINT*) probes — Plan §C4 vector form.  Each
+// probe loads V1 from memory as a Q register, runs one of the 9 FP unary
+// vector mnemonics, stores V0, and lane-by-lane compares with `want`.  FP32
+// vectors carry 4 lanes (Q=1, .4S); FP64 vectors carry 2 lanes (Q=1, .2D).
+//
+// The same input set used by the scalar FRINTA probes is replicated across
+// lanes; the vector op produces the same per-lane result as the scalar form.
+#define PROBE_VEC_4S(NAME, MNEMONIC)                                          \
+  bool probe_##NAME##_4s(std::string& report, char (&buf)[256],               \
+                         const float (&in)[4], const float (&want)[4]) {      \
+    alignas(16) float in_buf[4]  = {in[0], in[1], in[2], in[3]};              \
+    alignas(16) float out_buf[4] = {0, 0, 0, 0};                              \
+    asm volatile(                                                             \
+        "ldr q1, [%[pa]]\n\t"                                                 \
+        MNEMONIC " v0.4s, v1.4s\n\t"                                          \
+        "str q0, [%[pr]]\n\t"                                                 \
+        :                                                                     \
+        : [pa] "r"(in_buf), [pr] "r"(out_buf)                                 \
+        : "v0", "v1", "memory");                                              \
+    bool ok = true;                                                           \
+    for (int i = 0; i < 4; i++) {                                             \
+      bool lane_ok = std::isnan(want[i]) ? std::isnan(out_buf[i])             \
+                                         : (out_buf[i] == want[i]);           \
+      if (!lane_ok) ok = false;                                               \
+    }                                                                         \
+    snprintf(buf, sizeof(buf), "  " #NAME " .4S: %s\n", ok ? "OK" : "FAIL");  \
+    report += buf;                                                            \
+    return ok;                                                                \
+  }
+
+#define PROBE_VEC_2D(NAME, MNEMONIC)                                          \
+  bool probe_##NAME##_2d(std::string& report, char (&buf)[256],               \
+                         const double (&in)[2], const double (&want)[2]) {    \
+    alignas(16) double in_buf[2]  = {in[0], in[1]};                           \
+    alignas(16) double out_buf[2] = {0, 0};                                   \
+    asm volatile(                                                             \
+        "ldr q1, [%[pa]]\n\t"                                                 \
+        MNEMONIC " v0.2d, v1.2d\n\t"                                          \
+        "str q0, [%[pr]]\n\t"                                                 \
+        :                                                                     \
+        : [pa] "r"(in_buf), [pr] "r"(out_buf)                                 \
+        : "v0", "v1", "memory");                                              \
+    bool ok = true;                                                           \
+    for (int i = 0; i < 2; i++) {                                             \
+      bool lane_ok = std::isnan(want[i]) ? std::isnan(out_buf[i])             \
+                                         : (out_buf[i] == want[i]);           \
+      if (!lane_ok) ok = false;                                               \
+    }                                                                         \
+    snprintf(buf, sizeof(buf), "  " #NAME " .2D: %s\n", ok ? "OK" : "FAIL");  \
+    report += buf;                                                            \
+    return ok;                                                                \
+  }
+
+PROBE_VEC_4S(fabs,   "fabs")
+PROBE_VEC_4S(fneg,   "fneg")
+PROBE_VEC_4S(frintn, "frintn")
+PROBE_VEC_4S(frintm, "frintm")
+PROBE_VEC_4S(frintp, "frintp")
+PROBE_VEC_4S(frintz, "frintz")
+PROBE_VEC_4S(frinta, "frinta")
+PROBE_VEC_4S(frintx, "frintx")
+PROBE_VEC_4S(frinti, "frinti")
+PROBE_VEC_2D(fabs,   "fabs")
+PROBE_VEC_2D(fneg,   "fneg")
+PROBE_VEC_2D(frintn, "frintn")
+PROBE_VEC_2D(frintm, "frintm")
+PROBE_VEC_2D(frintp, "frintp")
+PROBE_VEC_2D(frintz, "frintz")
+PROBE_VEC_2D(frinta, "frinta")
+PROBE_VEC_2D(frintx, "frintx")
+PROBE_VEC_2D(frinti, "frinti")
+
+#undef PROBE_VEC_4S
+#undef PROBE_VEC_2D
+
+// Q=0 (.2S) variant: lanes 0/1 carry data, lanes 2/3 must be zero on write.
+// Confirms the mask_low64() emit on the !args.q path.
+bool probe_fneg_2s_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) float in_buf[4]  = {1.0f, -2.0f, 3.0f, -4.0f};
+  alignas(16) float out_buf[4] = {99.f, 99.f, 99.f, 99.f};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fneg v0.2s, v1.2s\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(in_buf), [pr] "r"(out_buf)
+      : "v0", "v1", "memory");
+  bool ok = (out_buf[0] == -1.0f) && (out_buf[1] == 2.0f) &&
+            (out_buf[2] == 0.0f) && (out_buf[3] == 0.0f);
+  snprintf(buf, sizeof(buf), "  fneg .2S (upper-zero): %s\n",
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -895,6 +990,51 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
     run(probe_frinta_d(report, buf, static_cast<double>(tc.in),
                        static_cast<double>(tc.want)));
   for (const auto& tc : frinta_cases) run(probe_frinta_h(report, buf, tc.in, tc.want));
+
+  // FABS/FNEG/FRINT* vector probes (Plan §C4 vector form).  Each input
+  // vector mixes positive, negative, sub-half, and tie cases so a single
+  // probe per opcode confirms all-lane behavior.
+  {
+    const float in_s[4]   = { 1.5f,  -1.5f,  0.4f, -2.5f};
+    const float fabs_w[4] = { 1.5f,   1.5f,  0.4f,  2.5f};
+    const float fneg_w[4] = {-1.5f,   1.5f, -0.4f,  2.5f};
+    const float frnn_w[4] = { 2.0f,  -2.0f,  0.0f, -2.0f};  // RNE: 1.5→2, -1.5→-2, 0.4→0, -2.5→-2
+    const float frnm_w[4] = { 1.0f,  -2.0f,  0.0f, -3.0f};  // floor
+    const float frnp_w[4] = { 2.0f,  -1.0f,  1.0f, -2.0f};  // ceil
+    const float frnz_w[4] = { 1.0f,  -1.0f,  0.0f, -2.0f};  // trunc toward zero
+    const float frna_w[4] = { 2.0f,  -2.0f,  0.0f, -3.0f};  // ties-away
+    const float frnx_w[4] = { 2.0f,  -2.0f,  0.0f, -2.0f};  // RNE (same as FRINTN)
+    run(probe_fabs_4s  (report, buf, in_s, fabs_w));
+    run(probe_fneg_4s  (report, buf, in_s, fneg_w));
+    run(probe_frintn_4s(report, buf, in_s, frnn_w));
+    run(probe_frintm_4s(report, buf, in_s, frnm_w));
+    run(probe_frintp_4s(report, buf, in_s, frnp_w));
+    run(probe_frintz_4s(report, buf, in_s, frnz_w));
+    run(probe_frinta_4s(report, buf, in_s, frna_w));
+    run(probe_frintx_4s(report, buf, in_s, frnx_w));
+    run(probe_frinti_4s(report, buf, in_s, frnx_w));
+  }
+  {
+    const double in_d[2]   = { 1.5,  -2.5};
+    const double fabs_w[2] = { 1.5,   2.5};
+    const double fneg_w[2] = {-1.5,   2.5};
+    const double frnn_w[2] = { 2.0,  -2.0};
+    const double frnm_w[2] = { 1.0,  -3.0};
+    const double frnp_w[2] = { 2.0,  -2.0};
+    const double frnz_w[2] = { 1.0,  -2.0};
+    const double frna_w[2] = { 2.0,  -3.0};
+    const double frnx_w[2] = { 2.0,  -2.0};
+    run(probe_fabs_2d  (report, buf, in_d, fabs_w));
+    run(probe_fneg_2d  (report, buf, in_d, fneg_w));
+    run(probe_frintn_2d(report, buf, in_d, frnn_w));
+    run(probe_frintm_2d(report, buf, in_d, frnm_w));
+    run(probe_frintp_2d(report, buf, in_d, frnp_w));
+    run(probe_frintz_2d(report, buf, in_d, frnz_w));
+    run(probe_frinta_2d(report, buf, in_d, frna_w));
+    run(probe_frintx_2d(report, buf, in_d, frnx_w));
+    run(probe_frinti_2d(report, buf, in_d, frnx_w));
+  }
+  run(probe_fneg_2s_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
