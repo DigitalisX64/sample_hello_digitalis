@@ -1163,6 +1163,9 @@ PROBE_VEC_FRINT_8H(frintp, "frintp",  2.0f, -1.0f, 1.0f, -2.0f, 3.0f, -1.0f, 4.0
 PROBE_VEC_FRINT_8H(frintz, "frintz",  1.0f, -1.0f, 0.0f, -2.0f, 2.0f, -1.0f, 3.0f, -3.0f)
 PROBE_VEC_FRINT_8H(frintx, "frintx",  2.0f, -2.0f, 0.0f, -2.0f, 3.0f, -2.0f, 4.0f, -4.0f)
 PROBE_VEC_FRINT_8H(frinti, "frinti",  2.0f, -2.0f, 0.0f, -2.0f, 3.0f, -2.0f, 4.0f, -4.0f)
+// FRINTA = round to nearest, ties AWAY from zero: 1.5 -> 2, -1.5 -> -2,
+// 2.5 -> 3 (not 2 like FRINTN), -2.5 -> -3.
+PROBE_VEC_FRINT_8H(frinta, "frinta",  2.0f, -2.0f, 0.0f, -3.0f, 3.0f, -2.0f, 4.0f, -4.0f)
 
 #undef PROBE_VEC_FRINT_8H
 
@@ -1191,6 +1194,37 @@ bool probe_frintn_4h_zero_upper(std::string& report, char (&buf)[256]) {
             out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
   snprintf(buf, sizeof(buf),
            "  frintn .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Vector FP16 FRINTA (.4H, Q=0) -- exercises ties-away-from-zero plus the
+// mask_low64 upper-zero clear on the F16C round-trip JIT path.
+bool probe_frinta_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.5f), SingleToHalf(-2.5f),
+      SingleToHalf(0.4f), SingleToHalf(-1.6f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "frinta v0.4h, v1.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  // FRINTA(1.5) = 2, FRINTA(-2.5) = -3, FRINTA(0.4) = 0, FRINTA(-1.6) = -2.
+  const uint16_t want_lo[4] = {SingleToHalf(2.0f), SingleToHalf(-3.0f),
+                               SingleToHalf(0.0f), SingleToHalf(-2.0f)};
+  bool ok = approx_half(out[0], want_lo[0]) && approx_half(out[1], want_lo[1]) &&
+            approx_half(out[2], want_lo[2]) && approx_half(out[3], want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  frinta .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
            out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
            ok ? "OK" : "FAIL");
   report += buf;
@@ -1363,6 +1397,9 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_frintx_8h(report, buf));
   run(probe_frinti_8h(report, buf));
   run(probe_frintn_4h_zero_upper(report, buf));
+  // FP16 vector FRINTA (F16C round-trip + add-copysign-trunc JIT path).
+  run(probe_frinta_8h(report, buf));
+  run(probe_frinta_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
