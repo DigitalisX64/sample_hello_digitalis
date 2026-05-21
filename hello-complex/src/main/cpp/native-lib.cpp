@@ -885,6 +885,7 @@ PROBE_VEC_4S(frintz, "frintz")
 PROBE_VEC_4S(frinta, "frinta")
 PROBE_VEC_4S(frintx, "frintx")
 PROBE_VEC_4S(frinti, "frinti")
+PROBE_VEC_4S(fsqrt,  "fsqrt")
 PROBE_VEC_2D(fabs,   "fabs")
 PROBE_VEC_2D(fneg,   "fneg")
 PROBE_VEC_2D(frintn, "frintn")
@@ -894,6 +895,7 @@ PROBE_VEC_2D(frintz, "frintz")
 PROBE_VEC_2D(frinta, "frinta")
 PROBE_VEC_2D(frintx, "frintx")
 PROBE_VEC_2D(frinti, "frinti")
+PROBE_VEC_2D(fsqrt,  "fsqrt")
 
 #undef PROBE_VEC_4S
 #undef PROBE_VEC_2D
@@ -913,6 +915,25 @@ bool probe_fneg_2s_zero_upper(std::string& report, char (&buf)[256]) {
   bool ok = (out_buf[0] == -1.0f) && (out_buf[1] == 2.0f) &&
             (out_buf[2] == 0.0f) && (out_buf[3] == 0.0f);
   snprintf(buf, sizeof(buf), "  fneg .2S (upper-zero): %s\n",
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
+bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
+  alignas(16) float out_buf[4] = {99.f, 99.f, 99.f, 99.f};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fsqrt v0.2s, v1.2s\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(in_buf), [pr] "r"(out_buf)
+      : "v0", "v1", "memory");
+  bool ok = (out_buf[0] == 2.0f) && (out_buf[1] == 3.0f) &&
+            (out_buf[2] == 0.0f) && (out_buf[3] == 0.0f);
+  snprintf(buf, sizeof(buf), "  fsqrt .2S (upper-zero): %s\n",
            ok ? "OK" : "FAIL");
   report += buf;
   return ok;
@@ -1015,6 +1036,13 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
     run(probe_frinti_4s(report, buf, in_s, frnx_w));
   }
   {
+    // FSQRT .4S — exact perfect squares (plus a negative input -> qNaN
+    // sentinel).  The macro's NaN-aware compare handles the negative lane.
+    const float fs_in[4]   = {4.0f, 9.0f, -1.0f, 16.0f};
+    const float fs_want[4] = {2.0f, 3.0f, std::nanf(""), 4.0f};
+    run(probe_fsqrt_4s(report, buf, fs_in, fs_want));
+  }
+  {
     const double in_d[2]   = { 1.5,  -2.5};
     const double fabs_w[2] = { 1.5,   2.5};
     const double fneg_w[2] = {-1.5,   2.5};
@@ -1034,7 +1062,14 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
     run(probe_frintx_2d(report, buf, in_d, frnx_w));
     run(probe_frinti_2d(report, buf, in_d, frnx_w));
   }
+  {
+    // FSQRT .2D — exact perfect squares.
+    const double fs_in[2]   = {25.0, 144.0};
+    const double fs_want[2] = { 5.0,  12.0};
+    run(probe_fsqrt_2d(report, buf, fs_in, fs_want));
+  }
   run(probe_fneg_2s_zero_upper(report, buf));
+  run(probe_fsqrt_2s_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
