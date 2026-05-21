@@ -422,6 +422,56 @@ int64_t fp_fcvtzs_x_d(uint64_t a) {
   return r;
 }
 
+// FCVTZU scalar (FP -> unsigned int, truncate toward zero).  ARM semantics:
+// NaN -> 0; FP < 0 -> 0; positive overflow -> UINT_MAX; in-range -> truncated.
+//
+// llvm-mc-verified encodings:
+//   0x1e390000 fcvtzu w0, s0       0x1e790000 fcvtzu w0, d0
+//   0x9e390000 fcvtzu x0, s0       0x9e790000 fcvtzu x0, d0
+uint32_t fp_fcvtzu_w_s(uint32_t a) {
+  uint32_t r;
+  asm volatile(
+      "ldr s0, [%[pa]]\n\t"
+      "fcvtzu %w[r], s0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+uint32_t fp_fcvtzu_w_d(uint64_t a) {
+  uint32_t r;
+  asm volatile(
+      "ldr d0, [%[pa]]\n\t"
+      "fcvtzu %w[r], d0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_fcvtzu_x_s(uint32_t a) {
+  uint64_t r;
+  asm volatile(
+      "ldr s0, [%[pa]]\n\t"
+      "fcvtzu %x[r], s0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_fcvtzu_x_d(uint64_t a) {
+  uint64_t r;
+  asm volatile(
+      "ldr d0, [%[pa]]\n\t"
+      "fcvtzu %x[r], d0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -1266,6 +1316,124 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     total++; if (check(report, buf, "FCVTZS X<-D -1e20",
                        u64_of_int64(fp_fcvtzs_x_d(u64_of_double(-1e20))),
                        u64_of_int64(INT64_MIN))) ok++;
+  }
+
+  // ===== FCVTZU scalar (FP -> unsigned int, truncate toward zero) =====
+  // ARM saturation rules: NaN -> 0; FP < 0 (incl -Inf, -0) -> 0; FP >
+  // UINT*_MAX -> UINT*_MAX; in-range -> trunc(FP) as unsigned.  The JIT
+  // uses cvtt-Q + upper-32-bit overflow test for sf=0, and the standard
+  // offset trick (subtract 2^63, cvtt, OR bit 63 back in) for FP in
+  // [2^63, 2^64) under sf=1; FP >= 2^64 saturates to UINT64_MAX.
+  {
+    auto u32 = [](uint32_t v) { return v; };
+    auto u64 = [](uint64_t v) { return v; };
+
+    // FCVTZU Wd, Sn (sf=0, ftype=00)
+    total++; if (check(report, buf, "FCVTZU W<-S 1.5",
+                       u32(fp_fcvtzu_w_s(u32_of_float(1.5f))),
+                       u32(1U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S 0",
+                       u32(fp_fcvtzu_w_s(u32_of_float(0.0f))),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S -0",
+                       u32(fp_fcvtzu_w_s(u32_of_float(-0.0f))),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S -1.5",
+                       u32(fp_fcvtzu_w_s(u32_of_float(-1.5f))),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S +Inf",
+                       u32(fp_fcvtzu_w_s(0x7F800000u)),
+                       u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S -Inf",
+                       u32(fp_fcvtzu_w_s(0xFF800000u)),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S NaN",
+                       u32(fp_fcvtzu_w_s(0x7FC00000u)),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S 2^32",
+                       u32(fp_fcvtzu_w_s(u32_of_float(4294967296.0f))),
+                       u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-S 2^31",
+                       u32(fp_fcvtzu_w_s(u32_of_float(2147483648.0f))),
+                       u32(2147483648U))) ok++;
+
+    // FCVTZU Wd, Dn (sf=0, ftype=01)
+    total++; if (check(report, buf, "FCVTZU W<-D 3.7",
+                       u32(fp_fcvtzu_w_d(u64_of_double(3.7))),
+                       u32(3U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D -3.7",
+                       u32(fp_fcvtzu_w_d(u64_of_double(-3.7))),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D UINT32_MAX",
+                       u32(fp_fcvtzu_w_d(u64_of_double(
+                           static_cast<double>(UINT32_MAX)))),
+                       u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D +Inf",
+                       u32(fp_fcvtzu_w_d(0x7FF0000000000000ULL)),
+                       u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D -Inf",
+                       u32(fp_fcvtzu_w_d(0xFFF0000000000000ULL)),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D NaN",
+                       u32(fp_fcvtzu_w_d(0x7FF8000000000000ULL)),
+                       u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTZU W<-D 1e20",
+                       u32(fp_fcvtzu_w_d(u64_of_double(1e20))),
+                       u32(UINT32_MAX))) ok++;
+
+    // FCVTZU Xd, Sn (sf=1, ftype=00)
+    total++; if (check(report, buf, "FCVTZU X<-S 1.5",
+                       u64(fp_fcvtzu_x_s(u32_of_float(1.5f))),
+                       u64(1ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S -1.5",
+                       u64(fp_fcvtzu_x_s(u32_of_float(-1.5f))),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S +Inf",
+                       u64(fp_fcvtzu_x_s(0x7F800000u)),
+                       u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S -Inf",
+                       u64(fp_fcvtzu_x_s(0xFF800000u)),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S NaN",
+                       u64(fp_fcvtzu_x_s(0x7FC00000u)),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S 2^63",
+                       u64(fp_fcvtzu_x_s(u32_of_float(9223372036854775808.0f))),
+                       u64(0x8000000000000000ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-S 2^64",
+                       u64(fp_fcvtzu_x_s(u32_of_float(18446744073709551616.0f))),
+                       u64(UINT64_MAX))) ok++;
+
+    // FCVTZU Xd, Dn (sf=1, ftype=01)
+    total++; if (check(report, buf, "FCVTZU X<-D 3.7",
+                       u64(fp_fcvtzu_x_d(u64_of_double(3.7))),
+                       u64(3ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D -3.7",
+                       u64(fp_fcvtzu_x_d(u64_of_double(-3.7))),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D 1<<52",
+                       u64(fp_fcvtzu_x_d(u64_of_double(
+                           static_cast<double>(1ULL << 52)))),
+                       u64(1ULL << 52))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D 2^63",
+                       u64(fp_fcvtzu_x_d(u64_of_double(
+                           static_cast<double>(1ULL << 63)))),
+                       u64(0x8000000000000000ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D +Inf",
+                       u64(fp_fcvtzu_x_d(0x7FF0000000000000ULL)),
+                       u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D -Inf",
+                       u64(fp_fcvtzu_x_d(0xFFF0000000000000ULL)),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D NaN",
+                       u64(fp_fcvtzu_x_d(0x7FF8000000000000ULL)),
+                       u64(0ULL))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D 1e20",
+                       u64(fp_fcvtzu_x_d(u64_of_double(1e20))),
+                       u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZU X<-D -1e20",
+                       u64(fp_fcvtzu_x_d(u64_of_double(-1e20))),
+                       u64(0ULL))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
