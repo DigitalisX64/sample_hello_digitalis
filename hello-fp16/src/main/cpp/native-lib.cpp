@@ -371,6 +371,57 @@ uint64_t fp_ucvtf_d_x(uint64_t a) {
   return r;
 }
 
+// FCVTZS scalar (FP -> signed int, truncate toward zero).  ARM semantics:
+// NaN -> 0; positive overflow -> INT_MAX; negative overflow -> INT_MIN; in
+// range -> truncated value.
+//
+// llvm-mc-verified encodings (clang --target=aarch64 -march=armv8-a):
+//   0x1e380000 fcvtzs w0, s0       0x1e780000 fcvtzs w0, d0
+//   0x9e380000 fcvtzs x0, s0       0x9e780000 fcvtzs x0, d0
+int32_t fp_fcvtzs_w_s(uint32_t a) {
+  int32_t r;
+  asm volatile(
+      "ldr s0, [%[pa]]\n\t"
+      "fcvtzs %w[r], s0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+int32_t fp_fcvtzs_w_d(uint64_t a) {
+  int32_t r;
+  asm volatile(
+      "ldr d0, [%[pa]]\n\t"
+      "fcvtzs %w[r], d0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+int64_t fp_fcvtzs_x_s(uint32_t a) {
+  int64_t r;
+  asm volatile(
+      "ldr s0, [%[pa]]\n\t"
+      "fcvtzs %x[r], s0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
+int64_t fp_fcvtzs_x_d(uint64_t a) {
+  int64_t r;
+  asm volatile(
+      "ldr d0, [%[pa]]\n\t"
+      "fcvtzs %x[r], d0\n\t"
+      : [r] "=r"(r)
+      : [pa] "r"(&a)
+      : "v0", "memory");
+  return r;
+}
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -1108,6 +1159,113 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     total++; if (check(report, buf, "UCVTF D<-X UINT64_MAX",
                        fp_ucvtf_d_x(UINT64_MAX),
                        u64_of_double(static_cast<double>(UINT64_MAX)))) ok++;
+  }
+
+  // ===== FCVTZS scalar (FP -> signed int, truncate toward zero) =====
+  // ARM semantics differ from x86 cvtt{ss,sd}2si: ARM saturates by sign
+  // (NaN->0, positive overflow->INT_MAX, negative overflow->INT_MIN),
+  // while x86 returns the destination type's INT_MIN for all exceptional
+  // cases.  The JIT rebuilds the ARM behaviour via a NaN + FP-sign-bit
+  // fix-up on the truncated result.
+  {
+    auto u32_of_int32  = [](int32_t v) { return static_cast<uint32_t>(v); };
+    auto u64_of_int64  = [](int64_t v) { return static_cast<uint64_t>(v); };
+
+    // FCVTZS Wd, Sn (sf=0, ftype=00)
+    total++; if (check(report, buf, "FCVTZS W<-S 1.5",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(1.5f))),
+                       u32_of_int32(1))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S -1.5",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(-1.5f))),
+                       u32_of_int32(-1))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S 0",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(0.0f))),
+                       u32_of_int32(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S -0",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(-0.0f))),
+                       u32_of_int32(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S +Inf",
+                       u32_of_int32(fp_fcvtzs_w_s(0x7F800000u)),
+                       u32_of_int32(INT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S -Inf",
+                       u32_of_int32(fp_fcvtzs_w_s(0xFF800000u)),
+                       u32_of_int32(INT32_MIN))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S NaN",
+                       u32_of_int32(fp_fcvtzs_w_s(0x7FC00000u)),
+                       u32_of_int32(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S 2^31",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(2147483648.0f))),
+                       u32_of_int32(INT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-S -2^31",
+                       u32_of_int32(fp_fcvtzs_w_s(u32_of_float(-2147483648.0f))),
+                       u32_of_int32(INT32_MIN))) ok++;
+
+    // FCVTZS Wd, Dn (sf=0, ftype=01)
+    total++; if (check(report, buf, "FCVTZS W<-D 3.7",
+                       u32_of_int32(fp_fcvtzs_w_d(u64_of_double(3.7))),
+                       u32_of_int32(3))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-D -3.7",
+                       u32_of_int32(fp_fcvtzs_w_d(u64_of_double(-3.7))),
+                       u32_of_int32(-3))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-D +Inf",
+                       u32_of_int32(fp_fcvtzs_w_d(0x7FF0000000000000ULL)),
+                       u32_of_int32(INT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-D -Inf",
+                       u32_of_int32(fp_fcvtzs_w_d(0xFFF0000000000000ULL)),
+                       u32_of_int32(INT32_MIN))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-D NaN",
+                       u32_of_int32(fp_fcvtzs_w_d(0x7FF8000000000000ULL)),
+                       u32_of_int32(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS W<-D 1e20",
+                       u32_of_int32(fp_fcvtzs_w_d(u64_of_double(1e20))),
+                       u32_of_int32(INT32_MAX))) ok++;
+
+    // FCVTZS Xd, Sn (sf=1, ftype=00)
+    total++; if (check(report, buf, "FCVTZS X<-S 1.5",
+                       u64_of_int64(fp_fcvtzs_x_s(u32_of_float(1.5f))),
+                       u64_of_int64(1))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-S -1.5",
+                       u64_of_int64(fp_fcvtzs_x_s(u32_of_float(-1.5f))),
+                       u64_of_int64(-1))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-S +Inf",
+                       u64_of_int64(fp_fcvtzs_x_s(0x7F800000u)),
+                       u64_of_int64(INT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-S -Inf",
+                       u64_of_int64(fp_fcvtzs_x_s(0xFF800000u)),
+                       u64_of_int64(INT64_MIN))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-S NaN",
+                       u64_of_int64(fp_fcvtzs_x_s(0x7FC00000u)),
+                       u64_of_int64(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-S 2^63",
+                       u64_of_int64(fp_fcvtzs_x_s(u32_of_float(9223372036854775808.0f))),
+                       u64_of_int64(INT64_MAX))) ok++;
+
+    // FCVTZS Xd, Dn (sf=1, ftype=01)
+    total++; if (check(report, buf, "FCVTZS X<-D 3.7",
+                       u64_of_int64(fp_fcvtzs_x_d(u64_of_double(3.7))),
+                       u64_of_int64(3))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D -3.7",
+                       u64_of_int64(fp_fcvtzs_x_d(u64_of_double(-3.7))),
+                       u64_of_int64(-3))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D 1<<52",
+                       u64_of_int64(fp_fcvtzs_x_d(u64_of_double(
+                           static_cast<double>(1LL << 52)))),
+                       u64_of_int64(1LL << 52))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D +Inf",
+                       u64_of_int64(fp_fcvtzs_x_d(0x7FF0000000000000ULL)),
+                       u64_of_int64(INT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D -Inf",
+                       u64_of_int64(fp_fcvtzs_x_d(0xFFF0000000000000ULL)),
+                       u64_of_int64(INT64_MIN))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D NaN",
+                       u64_of_int64(fp_fcvtzs_x_d(0x7FF8000000000000ULL)),
+                       u64_of_int64(0))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D 1e20",
+                       u64_of_int64(fp_fcvtzs_x_d(u64_of_double(1e20))),
+                       u64_of_int64(INT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTZS X<-D -1e20",
+                       u64_of_int64(fp_fcvtzs_x_d(u64_of_double(-1e20))),
+                       u64_of_int64(INT64_MIN))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
