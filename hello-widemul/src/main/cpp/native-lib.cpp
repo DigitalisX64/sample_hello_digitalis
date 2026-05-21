@@ -294,6 +294,288 @@ bool probe_pmull_1q(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// ----------------------- Widening add/sub probes -------------------------
+//
+// SADDL/UADDL/SSUBL/USUBL    — both operands narrow, widen and add/sub.
+// SADDW/UADDW/SSUBW/USUBW    — Vn already wide; widen Vm only, then add/sub.
+// SABDL/UABDL/SABAL/UABAL    — abs difference (widening), with optional
+//                              accumulate into Vd.
+// One template per (family, lane-size); the (is_signed, q) template params
+// select between the 4 encodings (U×Q) at compile time.
+
+template <bool is_signed, bool q>
+bool probe_addl_8h(std::string& report, char (&buf)[256]) {
+  alignas(16) uint8_t n[16] = {
+      0x01, 0x7F, 0x80, 0xFF, 0x10, 0x20, 0x30, 0x40,
+      0x81, 0x82, 0x83, 0x84, 0xC0, 0xD0, 0xE0, 0xF0,
+  };
+  alignas(16) uint8_t m[16] = {
+      0x02, 0x7F, 0x80, 0xFF, 0x05, 0x06, 0x07, 0x08,
+      0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+  };
+  alignas(16) uint16_t out[8] = {};
+  if constexpr (is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e220020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e220020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e220020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e220020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint16_t want[8];
+  uint8_t off = q ? 8 : 0;
+  for (int i = 0; i < 8; i++) {
+    if constexpr (is_signed) {
+      want[i] = static_cast<uint16_t>(static_cast<int8_t>(n[off + i]) +
+                                      static_cast<int8_t>(m[off + i]));
+    } else {
+      want[i] = static_cast<uint16_t>(static_cast<uint16_t>(n[off + i]) +
+                                      static_cast<uint16_t>(m[off + i]));
+    }
+  }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) if (out[i] != want[i]) ok = false;
+  snprintf(buf, sizeof(buf),
+           "  %sADDL%s .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           is_signed ? "S" : "U", q ? "2" : " ",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+template <bool is_signed, bool q>
+bool probe_subl_4s(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {0x0001, 0x7FFF, 0x8000, 0xFFFF,
+                                0x0500, 0x6000, 0xF000, 0x1234};
+  alignas(16) uint16_t m[8] = {0x0002, 0x0010, 0x0100, 0x0001,
+                                0x1234, 0x5678, 0x9ABC, 0xDEF0};
+  alignas(16) uint32_t out[4] = {};
+  if constexpr (is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e622020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e622020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e622020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e622020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint32_t want[4];
+  uint8_t off = q ? 4 : 0;
+  for (int i = 0; i < 4; i++) {
+    if constexpr (is_signed) {
+      want[i] = static_cast<uint32_t>(static_cast<int16_t>(n[off + i]) -
+                                      static_cast<int16_t>(m[off + i]));
+    } else {
+      want[i] = static_cast<uint32_t>(n[off + i]) -
+                static_cast<uint32_t>(m[off + i]);
+    }
+  }
+  bool ok = (out[0] == want[0] && out[1] == want[1] &&
+             out[2] == want[2] && out[3] == want[3]);
+  snprintf(buf, sizeof(buf),
+           "  %sSUBL%s .4S out=[%08x %08x %08x %08x]: %s\n",
+           is_signed ? "S" : "U", q ? "2" : " ",
+           out[0], out[1], out[2], out[3], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+template <bool is_signed, bool q>
+bool probe_addl_2d(std::string& report, char (&buf)[256]) {
+  alignas(16) uint32_t n[4] = {0x00000001u, 0x80000000u, 0x7FFFFFFFu, 0xFFFFFFFFu};
+  alignas(16) uint32_t m[4] = {0x00000002u, 0x80000000u, 0x00000005u, 0xFFFFFFFFu};
+  alignas(16) uint64_t out[2] = {};
+  if constexpr (is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0ea20020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4ea20020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2ea20020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6ea20020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint64_t want[2];
+  uint8_t off = q ? 2 : 0;
+  for (int i = 0; i < 2; i++) {
+    if constexpr (is_signed) {
+      want[i] = static_cast<uint64_t>(static_cast<int64_t>(static_cast<int32_t>(n[off + i])) +
+                                      static_cast<int64_t>(static_cast<int32_t>(m[off + i])));
+    } else {
+      want[i] = static_cast<uint64_t>(n[off + i]) + static_cast<uint64_t>(m[off + i]);
+    }
+  }
+  bool ok = (out[0] == want[0]) && (out[1] == want[1]);
+  snprintf(buf, sizeof(buf),
+           "  %sADDL%s .2D out=[%016llx %016llx]: %s\n",
+           is_signed ? "S" : "U", q ? "2" : " ",
+           (unsigned long long)out[0], (unsigned long long)out[1],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// SADDW/UADDW/SSUBW/USUBW — Vn is already 4S (4× int32 lanes), Vm is .4H or .8H.
+template <bool is_signed, bool q, bool is_sub>
+bool probe_addsubw_4s(std::string& report, char (&buf)[256]) {
+  alignas(16) uint32_t n[4] = {0x80000000u, 0x00000001u, 0xDEADBEEFu, 0x12345678u};
+  alignas(16) uint16_t m[8] = {0x0001, 0x7FFF, 0x8000, 0xFFFF,
+                                0x0F00, 0x1000, 0xC000, 0xABCD};
+  alignas(16) uint32_t out[4] = {};
+  if constexpr (!is_sub && is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e621020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_sub && is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e621020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_sub && !is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e621020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_sub && !is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e621020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_sub && is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e623020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_sub && is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e623020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_sub && !is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e623020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e623020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint32_t want[4];
+  uint8_t off = q ? 4 : 0;
+  for (int i = 0; i < 4; i++) {
+    int64_t mm;
+    if constexpr (is_signed) {
+      mm = static_cast<int16_t>(m[off + i]);
+    } else {
+      mm = static_cast<uint16_t>(m[off + i]);
+    }
+    if constexpr (is_sub) {
+      want[i] = static_cast<uint32_t>(static_cast<int32_t>(n[i]) - mm);
+    } else {
+      want[i] = static_cast<uint32_t>(static_cast<int32_t>(n[i]) + mm);
+    }
+  }
+  bool ok = (out[0] == want[0] && out[1] == want[1] &&
+             out[2] == want[2] && out[3] == want[3]);
+  snprintf(buf, sizeof(buf),
+           "  %s%sW%s .4S out=[%08x %08x %08x %08x]: %s\n",
+           is_signed ? "S" : "U", is_sub ? "SUB" : "ADD", q ? "2" : " ",
+           out[0], out[1], out[2], out[3], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// SABDL/UABDL — absolute difference (widening). 8H form (size=00).
+template <bool is_signed, bool q>
+bool probe_abdl_8h(std::string& report, char (&buf)[256]) {
+  alignas(16) uint8_t n[16] = {
+      0x01, 0x7F, 0xFF, 0x80, 0x10, 0x20, 0x30, 0x40,
+      0x81, 0x82, 0x83, 0x84, 0xC0, 0xD0, 0xE0, 0xF0,
+  };
+  alignas(16) uint8_t m[16] = {
+      0x02, 0xFF, 0x01, 0x7F, 0x40, 0x10, 0x35, 0x20,
+      0x05, 0x12, 0x73, 0x84, 0x15, 0x16, 0x17, 0x18,
+  };
+  alignas(16) uint16_t out[8] = {};
+  if constexpr (is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e227020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_signed && q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e227020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_signed && !q) {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e227020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e227020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint16_t want[8];
+  uint8_t off = q ? 8 : 0;
+  for (int i = 0; i < 8; i++) {
+    int32_t diff;
+    if constexpr (is_signed) {
+      diff = static_cast<int8_t>(n[off + i]) - static_cast<int8_t>(m[off + i]);
+    } else {
+      diff = static_cast<uint8_t>(n[off + i]) - static_cast<uint8_t>(m[off + i]);
+    }
+    want[i] = static_cast<uint16_t>(diff < 0 ? -diff : diff);
+  }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) if (out[i] != want[i]) ok = false;
+  snprintf(buf, sizeof(buf),
+           "  %sABDL%s .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           is_signed ? "S" : "U", q ? "2" : " ",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// SABAL/UABAL — abs difference plus accumulate into Vd. 4S form (size=01).
+template <bool is_signed, bool q>
+bool probe_abal_4s(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {0x0001, 0x7FFF, 0x8000, 0xFFFF,
+                                0x0500, 0x6000, 0xF000, 0x1234};
+  alignas(16) uint16_t m[8] = {0xFFFF, 0x8000, 0x0001, 0x1234,
+                                0x1234, 0x5678, 0x9ABC, 0xDEF0};
+  alignas(16) uint32_t out[4] = {100, 200, 300, 400};  // pre-populated accumulator
+  if constexpr (is_signed && !q) {
+    __asm__ __volatile__("ldr q0, [%2]\nldr q1, [%0]\nldr q2, [%1]\n.inst 0x0e625020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (is_signed && q) {
+    __asm__ __volatile__("ldr q0, [%2]\nldr q1, [%0]\nldr q2, [%1]\n.inst 0x4e625020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if constexpr (!is_signed && !q) {
+    __asm__ __volatile__("ldr q0, [%2]\nldr q1, [%0]\nldr q2, [%1]\n.inst 0x2e625020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__("ldr q0, [%2]\nldr q1, [%0]\nldr q2, [%1]\n.inst 0x6e625020\nstr q0, [%2]\n"
+                         : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint32_t want[4];
+  uint32_t accum[4] = {100, 200, 300, 400};
+  uint8_t off = q ? 4 : 0;
+  for (int i = 0; i < 4; i++) {
+    int64_t diff;
+    if constexpr (is_signed) {
+      diff = static_cast<int16_t>(n[off + i]) - static_cast<int16_t>(m[off + i]);
+    } else {
+      diff = static_cast<int64_t>(static_cast<uint16_t>(n[off + i])) -
+             static_cast<int64_t>(static_cast<uint16_t>(m[off + i]));
+    }
+    want[i] = accum[i] + static_cast<uint32_t>(diff < 0 ? -diff : diff);
+  }
+  bool ok = (out[0] == want[0] && out[1] == want[1] &&
+             out[2] == want[2] && out[3] == want[3]);
+  snprintf(buf, sizeof(buf),
+           "  %sABAL%s .4S out=[%08x %08x %08x %08x]: %s\n",
+           is_signed ? "S" : "U", q ? "2" : " ",
+           out[0], out[1], out[2], out[3], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -331,6 +613,46 @@ Java_com_example_hellowidemul_MainActivity_probeWideMul(JNIEnv* env,
   // PMULL64 / PMULL2-64 polynomial multiply (single 64-bit lane).
   run(probe_pmull_1q<false>(report, buf));
   run(probe_pmull_1q<true >(report, buf));
+
+  // SADDL/UADDL widening add (8H form — 8b->16b).
+  run(probe_addl_8h<true,  false>(report, buf));
+  run(probe_addl_8h<true,  true >(report, buf));
+  run(probe_addl_8h<false, false>(report, buf));
+  run(probe_addl_8h<false, true >(report, buf));
+
+  // SSUBL/USUBL widening sub (4S form — 16b->32b).
+  run(probe_subl_4s<true,  false>(report, buf));
+  run(probe_subl_4s<true,  true >(report, buf));
+  run(probe_subl_4s<false, false>(report, buf));
+  run(probe_subl_4s<false, true >(report, buf));
+
+  // SADDL/UADDL widening add (2D form — 32b->64b).
+  run(probe_addl_2d<true,  false>(report, buf));
+  run(probe_addl_2d<true,  true >(report, buf));
+  run(probe_addl_2d<false, false>(report, buf));
+  run(probe_addl_2d<false, true >(report, buf));
+
+  // SADDW/UADDW/SSUBW/USUBW wide add/sub (Vn already 4S, Vm narrow).
+  run(probe_addsubw_4s<true,  false, false>(report, buf));  // SADDW
+  run(probe_addsubw_4s<true,  true,  false>(report, buf));  // SADDW2
+  run(probe_addsubw_4s<false, false, false>(report, buf));  // UADDW
+  run(probe_addsubw_4s<false, true,  false>(report, buf));  // UADDW2
+  run(probe_addsubw_4s<true,  false, true >(report, buf));  // SSUBW
+  run(probe_addsubw_4s<true,  true,  true >(report, buf));  // SSUBW2
+  run(probe_addsubw_4s<false, false, true >(report, buf));  // USUBW
+  run(probe_addsubw_4s<false, true,  true >(report, buf));  // USUBW2
+
+  // SABDL/UABDL absolute-difference widening (8H form).
+  run(probe_abdl_8h<true,  false>(report, buf));
+  run(probe_abdl_8h<true,  true >(report, buf));
+  run(probe_abdl_8h<false, false>(report, buf));
+  run(probe_abdl_8h<false, true >(report, buf));
+
+  // SABAL/UABAL absolute-difference accumulate (4S form).
+  run(probe_abal_4s<true,  false>(report, buf));
+  run(probe_abal_4s<true,  true >(report, buf));
+  run(probe_abal_4s<false, false>(report, buf));
+  run(probe_abal_4s<false, true >(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
