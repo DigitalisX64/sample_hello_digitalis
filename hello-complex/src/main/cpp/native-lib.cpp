@@ -1231,6 +1231,90 @@ bool probe_frinta_4h_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// Vector FP16 three-same FADD/FSUB/FMUL/FDIV (F16C round-trip JIT path).
+// Exercises the .8H form across eight lanes with a shared input set; the
+// round-trip is bit-exact for FP16 binary FADD/FSUB/FMUL/FDIV per the
+// standing rule, so a host-computed FP32 reference (then narrowed to FP16)
+// matches the on-device result.  m_f avoids zero where required for FDIV.
+#define PROBE_FP16_BINOP_8H(NAME, MNEMONIC, OP)                                  \
+  bool probe_##NAME##_8h(std::string& report, char (&buf)[256]) {                \
+    const float n_f[8] = {1.0f, 2.0f, -3.0f, 0.5f, 100.0f, -100.0f, 0.0f, 1.5f}; \
+    const float m_f[8] = {1.0f, 4.0f, 3.0f, 1.5f, 0.5f, 0.5f, 1.0f, -0.5f};      \
+    alignas(16) uint16_t n[8], m[8];                                             \
+    for (int i = 0; i < 8; i++) {                                                \
+      n[i] = SingleToHalf(n_f[i]);                                               \
+      m[i] = SingleToHalf(m_f[i]);                                               \
+    }                                                                            \
+    alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,               \
+                                    0xdead, 0xbeef, 0xcafe, 0xf00d};             \
+    asm volatile(                                                                \
+        "ldr q1, [%[pa]]\n\t"                                                    \
+        "ldr q2, [%[pb]]\n\t"                                                    \
+        MNEMONIC " v0.8h, v1.8h, v2.8h\n\t"                                      \
+        "str q0, [%[pr]]\n\t"                                                    \
+        :                                                                        \
+        : [pa] "r"(n), [pb] "r"(m), [pr] "r"(out)                                \
+        : "v0", "v1", "v2", "memory");                                           \
+    uint16_t want[8];                                                            \
+    for (int i = 0; i < 8; i++) {                                                \
+      want[i] = SingleToHalf(n_f[i] OP m_f[i]);                                  \
+    }                                                                            \
+    bool ok = true;                                                              \
+    for (int i = 0; i < 8; i++) {                                                \
+      if (!approx_half(out[i], want[i])) ok = false;                             \
+    }                                                                            \
+    snprintf(buf, sizeof(buf),                                                   \
+             "  " #NAME " .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n", \
+             out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],     \
+             ok ? "OK" : "FAIL");                                                \
+    report += buf;                                                               \
+    return ok;                                                                   \
+  }
+
+PROBE_FP16_BINOP_8H(fadd, "fadd", +)
+PROBE_FP16_BINOP_8H(fsub, "fsub", -)
+PROBE_FP16_BINOP_8H(fmul, "fmul", *)
+PROBE_FP16_BINOP_8H(fdiv, "fdiv", /)
+
+#undef PROBE_FP16_BINOP_8H
+
+// Single .4H FADD probe confirms Q=0 upper-zero on the F16C round-trip
+// path (Vcvtps2ph auto-zeroes the upper 64 bits of its XMM destination).
+// Same code path serves FADD/FSUB/FMUL/FDIV; one probe is sufficient.
+bool probe_fadd_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.0f), SingleToHalf(2.0f),
+      SingleToHalf(-3.0f), SingleToHalf(0.5f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t m[8] = {
+      SingleToHalf(1.0f), SingleToHalf(4.0f),
+      SingleToHalf(3.0f), SingleToHalf(1.5f),
+      0x1234, 0x5678, 0x9abc, 0xdef0,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "ldr q2, [%[pb]]\n\t"
+      "fadd v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pb] "r"(m), [pr] "r"(out)
+      : "v0", "v1", "v2", "memory");
+  const uint16_t want_lo[4] = {SingleToHalf(2.0f), SingleToHalf(6.0f),
+                               SingleToHalf(0.0f), SingleToHalf(2.0f)};
+  bool ok = approx_half(out[0], want_lo[0]) && approx_half(out[1], want_lo[1]) &&
+            approx_half(out[2], want_lo[2]) && approx_half(out[3], want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  fadd .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 // Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
 bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
   alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
@@ -1400,6 +1484,12 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   // FP16 vector FRINTA (F16C round-trip + add-copysign-trunc JIT path).
   run(probe_frinta_8h(report, buf));
   run(probe_frinta_4h_zero_upper(report, buf));
+  // FP16 vector three-same FADD/FSUB/FMUL/FDIV (F16C round-trip JIT path).
+  run(probe_fadd_8h(report, buf));
+  run(probe_fsub_8h(report, buf));
+  run(probe_fmul_8h(report, buf));
+  run(probe_fdiv_8h(report, buf));
+  run(probe_fadd_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
