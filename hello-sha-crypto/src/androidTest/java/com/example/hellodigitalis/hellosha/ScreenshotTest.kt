@@ -1,4 +1,4 @@
-package com.example.hellodigitalis.hellosha1crypto
+package com.example.hellodigitalis.hellosha
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.hellodigitalis.screenshottest.ScreenshotTestRule
@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 class ScreenshotTest {
     @get:Rule
     val rule = ScreenshotTestRule(
-        "com.example.hellodigitalis.hellosha1crypto/com.example.hellosha1crypto.MainActivity",
+        "com.example.hellodigitalis.hellosha/com.example.hellosha.MainActivity",
         5000,
         0.05f
     )

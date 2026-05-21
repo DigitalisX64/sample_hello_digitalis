@@ -2,10 +2,10 @@ plugins {
     alias(libs.plugins.android.application)
 }
 android {
-    namespace = "com.example.hellodigitalis.hellosha1crypto"
+    namespace = "com.example.hellodigitalis.hellosha"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.example.hellodigitalis.hellosha1crypto"
+        applicationId = "com.example.hellodigitalis.hellosha"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
