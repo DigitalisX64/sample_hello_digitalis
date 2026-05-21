@@ -166,24 +166,38 @@ bool probe_fcadd_4s(std::string& report, char (&buf)[256], int rot) {
   return ok;
 }
 
-// FCADD V.2D, Vn, Vm, #90  — double-precision, 1 complex pair.
-bool probe_fcadd_2d(std::string& report, char (&buf)[256]) {
+// FCADD V.2D, Vn, Vm, #rot  — double-precision, 1 complex pair.
+bool probe_fcadd_2d(std::string& report, char (&buf)[256], int rot) {
   alignas(16) double n[2] = {1.5, 2.5};
   alignas(16) double m[2] = {10.0, 20.0};
   alignas(16) double out[2] = {0.0, 0.0};
-  __asm__ __volatile__(
-      "ldr q1, [%0]\n"
-      "ldr q2, [%1]\n"
-      ".inst 0x6ec2e420  // fcadd v0.2d, v1.2d, v2.2d, #90\n"
-      "str q0, [%2]\n"
-      :
-      : "r"(n), "r"(m), "r"(out)
-      : "v0", "v1", "v2", "memory");
-  double want[2] = {n[0] - m[1], n[1] + m[0]};
+  if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6ec2e420  // fcadd v0.2d, v1.2d, v2.2d, #90\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6ec2f420  // fcadd v0.2d, v1.2d, v2.2d, #270\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  double want[2];
+  if (rot == 90) {
+    want[0] = n[0] - m[1];
+    want[1] = n[1] + m[0];
+  } else {
+    want[0] = n[0] + m[1];
+    want[1] = n[1] - m[0];
+  }
   bool ok = approxd(out[0], want[0]) && approxd(out[1], want[1]);
   snprintf(buf, sizeof(buf),
-           "  FCADD .2D #90  out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
-           out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
+           "  FCADD .2D #%-3d out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
+           rot, out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
   report += buf;
   return ok;
 }
@@ -298,27 +312,58 @@ bool probe_fcmla_4s(std::string& report, char (&buf)[256], int rot) {
   return ok;
 }
 
-// FCMLA V.2D, Vn, Vm, #90  — double-precision, 1 complex pair.
-bool probe_fcmla_2d(std::string& report, char (&buf)[256]) {
+// FCMLA V.2D, Vn, Vm, #rot — double-precision, 1 complex pair.
+// Encodings: #0=0x6ec2c420, #90=0x6ec2cc20, #180=0x6ec2d420, #270=0x6ec2dc20.
+bool probe_fcmla_2d(std::string& report, char (&buf)[256], int rot) {
   alignas(16) double n[2] = {1.5, 2.5};
   alignas(16) double m[2] = {3.5, 4.5};
   alignas(16) double pre[2] = {100.0, 200.0};
   alignas(16) double out[2];
   std::memcpy(out, pre, 16);
-  __asm__ __volatile__(
-      "ldr q1, [%0]\n"
-      "ldr q2, [%1]\n"
-      "ldr q0, [%2]\n"
-      ".inst 0x6ec2cc20  // fcmla v0.2d, v1.2d, v2.2d, #90\n"
-      "str q0, [%2]\n"
-      :
-      : "r"(n), "r"(m), "r"(out)
-      : "v0", "v1", "v2", "memory");
-  double want[2] = {pre[0] + n[1] * -m[1], pre[1] + n[1] * m[0]};
+  if (rot == 0) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6ec2c420  // fcmla v0.2d, v1.2d, v2.2d, #0\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6ec2cc20  // fcmla v0.2d, v1.2d, v2.2d, #90\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else if (rot == 180) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6ec2d420  // fcmla v0.2d, v1.2d, v2.2d, #180\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6ec2dc20  // fcmla v0.2d, v1.2d, v2.2d, #270\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  double want[2];
+  switch (rot) {
+    case 0:   want[0] = pre[0] + n[0] *  m[0]; want[1] = pre[1] + n[0] *  m[1]; break;
+    case 90:  want[0] = pre[0] + n[1] * -m[1]; want[1] = pre[1] + n[1] *  m[0]; break;
+    case 180: want[0] = pre[0] + n[0] * -m[0]; want[1] = pre[1] + n[0] * -m[1]; break;
+    default:  want[0] = pre[0] + n[1] *  m[1]; want[1] = pre[1] + n[1] * -m[0]; break;
+  }
   bool ok = approxd(out[0], want[0]) && approxd(out[1], want[1]);
   snprintf(buf, sizeof(buf),
-           "  FCMLA .2D #90  out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
-           out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
+           "  FCMLA .2D #%-3d out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
+           rot, out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
   report += buf;
   return ok;
 }
@@ -733,13 +778,17 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
 
   run(probe_fcadd_4s(report, buf, 90));
   run(probe_fcadd_4s(report, buf, 270));
-  run(probe_fcadd_2d(report, buf));
+  run(probe_fcadd_2d(report, buf, 90));
+  run(probe_fcadd_2d(report, buf, 270));
   run(probe_fcadd_2s(report, buf));
   run(probe_fcmla_4s(report, buf, 0));
   run(probe_fcmla_4s(report, buf, 90));
   run(probe_fcmla_4s(report, buf, 180));
   run(probe_fcmla_4s(report, buf, 270));
-  run(probe_fcmla_2d(report, buf));
+  run(probe_fcmla_2d(report, buf, 0));
+  run(probe_fcmla_2d(report, buf, 90));
+  run(probe_fcmla_2d(report, buf, 180));
+  run(probe_fcmla_2d(report, buf, 270));
   // FCMLA by element (Armv8.3-FCMA idx) — handoff-58 §H1.
   // All 4 rotations × 2 indices = 8 probes; covers Vm broadcast & rot table.
   run(probe_fcmla_4s_idx(report, buf, 0,   0));
