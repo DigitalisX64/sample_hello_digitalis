@@ -272,6 +272,83 @@ FP64_OP_3SRC(fmsub)
 FP64_OP_3SRC(fnmadd)
 FP64_OP_3SRC(fnmsub)
 
+// SCVTF / UCVTF (scalar, integer→FP, rmode=00 in FpIntConversion).  Each
+// helper takes one integer source register (W or X), executes the ARM
+// convert, and stores the FP result back as raw bits — matching the
+// existing fp_fcvt_*_* probes and letting the host reference be a plain
+// (float)/(double) cast.
+//
+// llvm-mc-verified encodings (clang --target=aarch64 -march=armv8-a):
+//   0x1e220020 scvtf s0, w1            0x1e620020 scvtf d0, w1
+//   0x9e220020 scvtf s0, x1            0x9e620020 scvtf d0, x1
+//   0x1e230020 ucvtf s0, w1            0x1e630020 ucvtf d0, w1
+//   0x9e230020 ucvtf s0, x1            0x9e630020 ucvtf d0, x1
+uint32_t fp_scvtf_s_w(int32_t a) {
+  uint32_t r;
+  asm volatile(
+      "scvtf s0, %w[a]\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_scvtf_d_w(int32_t a) {
+  uint64_t r;
+  asm volatile(
+      "scvtf d0, %w[a]\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint32_t fp_scvtf_s_x(int64_t a) {
+  uint32_t r;
+  asm volatile(
+      "scvtf s0, %x[a]\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_scvtf_d_x(int64_t a) {
+  uint64_t r;
+  asm volatile(
+      "scvtf d0, %x[a]\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint32_t fp_ucvtf_s_w(uint32_t a) {
+  uint32_t r;
+  asm volatile(
+      "ucvtf s0, %w[a]\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_ucvtf_d_w(uint32_t a) {
+  uint64_t r;
+  asm volatile(
+      "ucvtf d0, %w[a]\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -924,6 +1001,61 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     total++; if (check(report, buf, "FNMSUB.d",
                        u64_of_double(fp64_fnmsub(fn_d, fm_d, fa_d)),
                        u64_of_double(ref_nmsub_d))) ok++;
+  }
+
+  // SCVTF / UCVTF scalar (FpIntConversion rmode=00 op=010/011): integer to
+  // FP convert.  Inputs are exactly-representable in both float and double
+  // (small magnitudes plus a 23-bit-safe boundary) so the host (float)/
+  // (double) cast is bit-exact reference.  Covers the JIT lowerings added
+  // alongside this probe: SCVTF.{S,D} from W/X (4 forms) + UCVTF.{S,D}
+  // from W (2 forms).  UCVTF from X still rides the interpreter.
+  {
+    auto u32_of_float = [](float f) {
+      uint32_t bits; std::memcpy(&bits, &f, 4); return bits;
+    };
+    auto u64_of_double = [](double d) {
+      uint64_t bits; std::memcpy(&bits, &d, 8); return bits;
+    };
+    // SCVTF Sd, Wn
+    total++; if (check(report, buf, "SCVTF S<-W 7",
+                       fp_scvtf_s_w(7), u32_of_float(7.0f))) ok++;
+    total++; if (check(report, buf, "SCVTF S<-W -42",
+                       fp_scvtf_s_w(-42), u32_of_float(-42.0f))) ok++;
+    total++; if (check(report, buf, "SCVTF S<-W 0",
+                       fp_scvtf_s_w(0), u32_of_float(0.0f))) ok++;
+    // SCVTF Dd, Wn
+    total++; if (check(report, buf, "SCVTF D<-W 7",
+                       fp_scvtf_d_w(7), u64_of_double(7.0))) ok++;
+    total++; if (check(report, buf, "SCVTF D<-W -42",
+                       fp_scvtf_d_w(-42), u64_of_double(-42.0))) ok++;
+    total++; if (check(report, buf, "SCVTF D<-W INT32_MIN",
+                       fp_scvtf_d_w(INT32_MIN),
+                       u64_of_double(static_cast<double>(INT32_MIN)))) ok++;
+    // SCVTF Sd, Xn
+    total++; if (check(report, buf, "SCVTF S<-X 7",
+                       fp_scvtf_s_x(7), u32_of_float(7.0f))) ok++;
+    total++; if (check(report, buf, "SCVTF S<-X -42",
+                       fp_scvtf_s_x(-42), u32_of_float(-42.0f))) ok++;
+    // SCVTF Dd, Xn — large in-range value that survives the int64→double
+    // round trip exactly (1<<52 is representable in binary64 mantissa).
+    total++; if (check(report, buf, "SCVTF D<-X 1<<52",
+                       fp_scvtf_d_x(1LL << 52),
+                       u64_of_double(static_cast<double>(1LL << 52)))) ok++;
+    total++; if (check(report, buf, "SCVTF D<-X -(1<<52)",
+                       fp_scvtf_d_x(-(1LL << 52)),
+                       u64_of_double(-static_cast<double>(1LL << 52)))) ok++;
+    // UCVTF Sd, Wn — value > INT32_MAX exercises the unsigned semantics.
+    total++; if (check(report, buf, "UCVTF S<-W 0xFFFFFFFF",
+                       fp_ucvtf_s_w(0xFFFFFFFFu),
+                       u32_of_float(static_cast<float>(0xFFFFFFFFu)))) ok++;
+    total++; if (check(report, buf, "UCVTF S<-W 7",
+                       fp_ucvtf_s_w(7), u32_of_float(7.0f))) ok++;
+    // UCVTF Dd, Wn
+    total++; if (check(report, buf, "UCVTF D<-W 0xFFFFFFFF",
+                       fp_ucvtf_d_w(0xFFFFFFFFu),
+                       u64_of_double(static_cast<double>(0xFFFFFFFFu)))) ok++;
+    total++; if (check(report, buf, "UCVTF D<-W 0",
+                       fp_ucvtf_d_w(0), u64_of_double(0.0))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
