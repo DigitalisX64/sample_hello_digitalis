@@ -41,12 +41,22 @@ class MainActivity : AppCompatActivity() {
         minute = 0
         second = 0
         (findViewById<TextView>(R.id.hellojniMsg)).text = stringFromJNI()
-        startTicks()
+        // region digitalis
+        // In screenshot-test mode, skip the live timer so the rendered UI is
+        // deterministic at capture time (tickView keeps its layout "00:00:00").
+        if (!intent.getBooleanExtra("screenshot_test_mode", false)) {
+            startTicks()
+        }
+        // endregion
     }
 
     override fun onPause() {
         super.onPause()
-        StopTicks()
+        // region digitalis
+        if (!intent.getBooleanExtra("screenshot_test_mode", false)) {
+            StopTicks()
+        }
+        // endregion
     }
 
     /*

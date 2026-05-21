@@ -7,6 +7,7 @@
 #include <android/native_window.h>
 #include <android/set_abort_message.h>
 #include <android_native_app_glue.h>
+#include <jni.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -69,9 +70,57 @@ enum class Color : uint32_t {
  * https://developer.android.com/guide/components/activities/activity-lifecycle
  * and the other docs in that section for more information.
  */
+// region digitalis
+// In screenshot-test mode, freeze the color cycle so the rendered output is
+// deterministic at capture time. The launching ScreenshotTestRule attaches a
+// boolean Intent extra "screenshot_test_mode"; we read it once from the Java
+// NativeActivity via JNI and stash the result on the Engine.
+static bool ReadScreenshotTestModeExtra(android_app* app) {
+  if (app == nullptr || app->activity == nullptr ||
+      app->activity->vm == nullptr || app->activity->clazz == nullptr) {
+    return false;
+  }
+  JavaVM* vm = app->activity->vm;
+  JNIEnv* env = nullptr;
+  if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK || env == nullptr) {
+    return false;
+  }
+  jobject activity = app->activity->clazz;
+  jclass activity_class = env->GetObjectClass(activity);
+  jmethodID get_intent = env->GetMethodID(activity_class, "getIntent",
+                                          "()Landroid/content/Intent;");
+  bool result = false;
+  if (get_intent != nullptr) {
+    jobject intent = env->CallObjectMethod(activity, get_intent);
+    if (intent != nullptr) {
+      jclass intent_class = env->GetObjectClass(intent);
+      jmethodID get_boolean_extra =
+          env->GetMethodID(intent_class, "getBooleanExtra",
+                           "(Ljava/lang/String;Z)Z");
+      if (get_boolean_extra != nullptr) {
+        jstring key = env->NewStringUTF("screenshot_test_mode");
+        jboolean value =
+            env->CallBooleanMethod(intent, get_boolean_extra, key, JNI_FALSE);
+        result = (value == JNI_TRUE);
+        env->DeleteLocalRef(key);
+      }
+      env->DeleteLocalRef(intent_class);
+      env->DeleteLocalRef(intent);
+    }
+  }
+  env->DeleteLocalRef(activity_class);
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+  }
+  vm->DetachCurrentThread();
+  return result;
+}
+// endregion
+
 class Engine {
  public:
-  explicit Engine(android_app* app) : app_(app) {}
+  explicit Engine(android_app* app)
+      : app_(app), screenshot_test_mode_(ReadScreenshotTestModeExtra(app)) {}
 
   void AttachWindow() {
     // This is called whenever a new native window is created for our app, so we
@@ -139,6 +188,11 @@ class Engine {
   bool running_ = false;
   Color color_ = Color::kRed;
   std::chrono::time_point<std::chrono::steady_clock> last_update_;
+  // region digitalis
+  // When true, Update() is a no-op so the rendered color stays at kRed for the
+  // entire run. Captured once at construction time from the launch Intent.
+  const bool screenshot_test_mode_;
+  // endregion
 
   void ScheduleNextTick() {
     AChoreographer_postFrameCallback(AChoreographer_getInstance(), Tick, this);
@@ -174,6 +228,12 @@ class Engine {
   }
 
   void Update() {
+    // region digitalis
+    // Freeze color for deterministic screenshot capture.
+    if (screenshot_test_mode_) {
+      return;
+    }
+    // endregion
     auto now = std::chrono::steady_clock::now();
     if (now - last_update_ > 1s) {
       switch (color_) {
