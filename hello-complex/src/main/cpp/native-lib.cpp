@@ -920,6 +920,80 @@ bool probe_fneg_2s_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// Vector FSQRT FP16 .8H (Q=1) — 8 perfect-square lanes plus a negative
+// lane for NaN propagation through the F16C round-trip.  Exercises the
+// .8H split-and-recombine JIT path (low 4 lanes via Vcvtph2ps; high 4
+// lanes via Psrldq + Vcvtph2ps; results merged with Pslldq + Por).
+bool probe_fsqrt_8h(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.0f),  SingleToHalf(4.0f),  SingleToHalf(9.0f),
+      SingleToHalf(16.0f), SingleToHalf(25.0f), SingleToHalf(36.0f),
+      SingleToHalf(-1.0f), SingleToHalf(49.0f),
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fsqrt v0.8h, v1.8h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want[8] = {
+      SingleToHalf(1.0f), SingleToHalf(2.0f), SingleToHalf(3.0f),
+      SingleToHalf(4.0f), SingleToHalf(5.0f), SingleToHalf(6.0f),
+      0,                  SingleToHalf(7.0f),
+  };
+  bool ok = true;
+  for (int i = 0; i < 8; i++) {
+    if (i == 6) {
+      // -1.0f -> qNaN.  FP16 qNaN has exponent=0x1F and a nonzero mantissa
+      // with MSB set; tolerate any FP16 quiet NaN encoding.
+      uint16_t h = out[i];
+      bool is_nan = ((h & 0x7C00) == 0x7C00) && ((h & 0x03FF) != 0);
+      if (!is_nan) ok = false;
+    } else if (!approx_half(out[i], want[i])) {
+      ok = false;
+    }
+  }
+  snprintf(buf, sizeof(buf),
+           "  fsqrt .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Vector FSQRT FP16 .4H (Q=0) — 4 perfect-square lanes; upper 4 must be
+// zero on write.  Exercises the .4H direct F16C round-trip JIT path.
+bool probe_fsqrt_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(4.0f), SingleToHalf(9.0f),
+      SingleToHalf(16.0f), SingleToHalf(25.0f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fsqrt v0.4h, v1.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want_lo[4] = {SingleToHalf(2.0f), SingleToHalf(3.0f),
+                               SingleToHalf(4.0f), SingleToHalf(5.0f)};
+  bool ok = approx_half(out[0], want_lo[0]) && approx_half(out[1], want_lo[1]) &&
+            approx_half(out[2], want_lo[2]) && approx_half(out[3], want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  fsqrt .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 // Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
 bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
   alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
@@ -1070,6 +1144,9 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   }
   run(probe_fneg_2s_zero_upper(report, buf));
   run(probe_fsqrt_2s_zero_upper(report, buf));
+  // FP16 vector FSQRT (F16C round-trip JIT path).
+  run(probe_fsqrt_8h(report, buf));
+  run(probe_fsqrt_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
