@@ -349,6 +349,28 @@ uint64_t fp_ucvtf_d_w(uint32_t a) {
   return r;
 }
 
+uint32_t fp_ucvtf_s_x(uint64_t a) {
+  uint32_t r;
+  asm volatile(
+      "ucvtf s0, %x[a]\n\t"
+      "str s0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
+uint64_t fp_ucvtf_d_x(uint64_t a) {
+  uint64_t r;
+  asm volatile(
+      "ucvtf d0, %x[a]\n\t"
+      "str d0, [%[pr]]\n\t"
+      :
+      : [a] "r"(a), [pr] "r"(&r)
+      : "v0", "memory");
+  return r;
+}
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -1056,6 +1078,36 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
                        u64_of_double(static_cast<double>(0xFFFFFFFFu)))) ok++;
     total++; if (check(report, buf, "UCVTF D<-W 0",
                        fp_ucvtf_d_w(0), u64_of_double(0.0))) ok++;
+    // UCVTF Sd, Xn — exercises the JIT's positive (< 2^63) and negative-bit
+    // (>= 2^63) paths and the halve-round-to-odd-double fix-up.
+    total++; if (check(report, buf, "UCVTF S<-X 7",
+                       fp_ucvtf_s_x(7ULL),
+                       u32_of_float(static_cast<float>(7ULL)))) ok++;
+    total++; if (check(report, buf, "UCVTF S<-X 0",
+                       fp_ucvtf_s_x(0ULL),
+                       u32_of_float(static_cast<float>(0ULL)))) ok++;
+    total++; if (check(report, buf, "UCVTF S<-X (1<<63)",
+                       fp_ucvtf_s_x(1ULL << 63),
+                       u32_of_float(static_cast<float>(1ULL << 63)))) ok++;
+    total++; if (check(report, buf, "UCVTF S<-X UINT64_MAX",
+                       fp_ucvtf_s_x(UINT64_MAX),
+                       u32_of_float(static_cast<float>(UINT64_MAX)))) ok++;
+    // UCVTF Dd, Xn
+    total++; if (check(report, buf, "UCVTF D<-X 7",
+                       fp_ucvtf_d_x(7ULL),
+                       u64_of_double(static_cast<double>(7ULL)))) ok++;
+    total++; if (check(report, buf, "UCVTF D<-X (1<<52)",
+                       fp_ucvtf_d_x(1ULL << 52),
+                       u64_of_double(static_cast<double>(1ULL << 52)))) ok++;
+    total++; if (check(report, buf, "UCVTF D<-X (1<<63)",
+                       fp_ucvtf_d_x(1ULL << 63),
+                       u64_of_double(static_cast<double>(1ULL << 63)))) ok++;
+    total++; if (check(report, buf, "UCVTF D<-X (1<<63)+1",
+                       fp_ucvtf_d_x((1ULL << 63) + 1ULL),
+                       u64_of_double(static_cast<double>((1ULL << 63) + 1ULL)))) ok++;
+    total++; if (check(report, buf, "UCVTF D<-X UINT64_MAX",
+                       fp_ucvtf_d_x(UINT64_MAX),
+                       u64_of_double(static_cast<double>(UINT64_MAX)))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
