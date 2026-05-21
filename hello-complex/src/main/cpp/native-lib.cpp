@@ -1,0 +1,779 @@
+// hello-complex: integration-level probe for Armv8.3-FCMA (§H1 / §M1).
+//
+// Probes every FCMA encoding the §H1 decoder + interpreter implemented
+// in handoff-49.  FCADD has two rotations (#90 / #270); FCMLA has four
+// rotations (#0 / #90 / #180 / #270).  Each is exercised at .4S vector,
+// .2D vector, and .2S half-vector widths where the encoding allows.
+//
+//   FCADD V.4S, Vn, Vm, #90    Vd_re = Vn_re - Vm_im, Vd_im = Vn_im + Vm_re
+//   FCADD V.4S, Vn, Vm, #270   Vd_re = Vn_re + Vm_im, Vd_im = Vn_im - Vm_re
+//   FCADD V.2D, Vn, Vm, #90    (double-precision form, 1 pair)
+//   FCADD V.2S, Vn, Vm, #90    (Q=0, 1 pair, top 64 bits cleared)
+//   FCMLA V.4S, Vn, Vm, #0     Vd_re += Vn_re * Vm_re,   Vd_im += Vn_re * Vm_im
+//   FCMLA V.4S, Vn, Vm, #90    Vd_re += Vn_im * (-Vm_im),Vd_im += Vn_im * Vm_re
+//   FCMLA V.4S, Vn, Vm, #180   Vd_re += Vn_re * (-Vm_re),Vd_im += Vn_re * (-Vm_im)
+//   FCMLA V.4S, Vn, Vm, #270   Vd_re += Vn_im * Vm_im,   Vd_im += Vn_im * (-Vm_re)
+//   FCMLA V.2D, Vn, Vm, #90    (double-precision form)
+//
+// The interpreter implementation is in interpreter.h::AdvSimdFcma at line
+// ~981.  If any FCMA encoding routes to Undefined() the entire native lib
+// SIGILLs on the first call.  If the decoder rotation table is wrong the
+// per-rotation probes would each give the wrong sign in either the real
+// or imaginary half.
+//
+// llvm-mc-verified encodings (cited in handoff-49):
+//   0x6e82e420  fcadd v0.4s, v1.4s, v2.4s, #90
+//   0x6e82f420  fcadd v0.4s, v1.4s, v2.4s, #270
+//   0x6ec2e420  fcadd v0.2d, v1.2d, v2.2d, #90
+//   0x2e82e420  fcadd v0.2s, v1.2s, v2.2s, #90
+//   0x6e82c420  fcmla v0.4s, v1.4s, v2.4s, #0
+//   0x6e82cc20  fcmla v0.4s, v1.4s, v2.4s, #90
+//   0x6e82d420  fcmla v0.4s, v1.4s, v2.4s, #180
+//   0x6e82dc20  fcmla v0.4s, v1.4s, v2.4s, #270
+//   0x6ec2cc20  fcmla v0.2d, v1.2d, v2.2d, #90
+
+#include <android/log.h>
+#include <jni.h>
+
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+
+#define LOG_TAG "hellocomplex"
+
+namespace {
+
+bool approxf(float got, float want) {
+  float tol = 1e-5f * std::fabs(want) + 1e-6f;
+  return std::fabs(got - want) <= tol;
+}
+
+bool approxd(double got, double want) {
+  double tol = 1e-12 * std::fabs(want) + 1e-13;
+  return std::fabs(got - want) <= tol;
+}
+
+// region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
+// IEEE 754 binary32 -> binary16 ("F16C round-to-nearest-even" semantics)
+// and the inverse.  Same helpers as hello-fp16; copied verbatim so each
+// sample is self-contained.
+uint16_t SingleToHalf(float f) {
+  uint32_t fbits;
+  std::memcpy(&fbits, &f, 4);
+  uint16_t sign = (fbits >> 16) & 0x8000;
+  int32_t exp = ((fbits >> 23) & 0xFF) - 127;
+  uint32_t frac = fbits & 0x7FFFFF;
+
+  if (exp == 128) {
+    return sign | 0x7C00 | (frac ? (frac >> 13) | 1 : 0);
+  }
+  if (exp > 15) return sign | 0x7C00;
+  if (exp < -24) return sign;
+  if (exp < -14) {
+    frac = (frac | 0x800000) >> (-exp - 14 + 13);
+    return sign | static_cast<uint16_t>(frac);
+  }
+  return sign | static_cast<uint16_t>((exp + 15) << 10) |
+         static_cast<uint16_t>(frac >> 13);
+}
+
+float HalfToSingle(uint16_t h) {
+  uint32_t sign = static_cast<uint32_t>(h & 0x8000) << 16;
+  uint32_t exp = (h >> 10) & 0x1F;
+  uint32_t frac = h & 0x3FF;
+  uint32_t fbits;
+  if (exp == 0) {
+    if (frac == 0) {
+      fbits = sign;
+    } else {
+      exp = 1;
+      while (!(frac & 0x400)) {
+        frac <<= 1;
+        exp--;
+      }
+      frac &= 0x3FF;
+      fbits = sign | (static_cast<uint32_t>(exp + 127 - 15) << 23) | (frac << 13);
+    }
+  } else if (exp == 0x1F) {
+    fbits = sign | 0x7F800000 | (frac << 13);
+  } else {
+    fbits = sign | (static_cast<uint32_t>(exp + 127 - 15) << 23) | (frac << 13);
+  }
+  float result;
+  std::memcpy(&result, &fbits, 4);
+  return result;
+}
+
+bool approx_half(uint16_t got, uint16_t want) {
+  // Tolerate single-ULP mismatches due to different rounding paths.
+  if (got == want) return true;
+  float gf = HalfToSingle(got);
+  float wf = HalfToSingle(want);
+  float tol = 1e-3f * std::fabs(wf) + 1e-3f;
+  return std::fabs(gf - wf) <= tol;
+}
+// endregion
+
+// FCADD V.4S, Vn, Vm, #rot  — single-precision, 2 complex pairs per vector.
+bool probe_fcadd_4s(std::string& report, char (&buf)[256], int rot) {
+  alignas(16) float n[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+  alignas(16) float m[4] = {10.0f, 20.0f, 30.0f, 40.0f};
+  alignas(16) float out[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6e82e420  // fcadd v0.4s, v1.4s, v2.4s, #90\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6e82f420  // fcadd v0.4s, v1.4s, v2.4s, #270\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  }
+  float want[4];
+  for (int p = 0; p < 2; p++) {
+    float n_re = n[2 * p], n_im = n[2 * p + 1];
+    float m_re = m[2 * p], m_im = m[2 * p + 1];
+    if (rot == 90) {
+      want[2 * p]     = n_re - m_im;
+      want[2 * p + 1] = n_im + m_re;
+    } else {
+      want[2 * p]     = n_re + m_im;
+      want[2 * p + 1] = n_im - m_re;
+    }
+  }
+  bool ok = approxf(out[0], want[0]) && approxf(out[1], want[1]) &&
+            approxf(out[2], want[2]) && approxf(out[3], want[3]);
+  snprintf(buf, sizeof(buf),
+           "  FCADD .4S #%-3d out=[%.4f %.4f %.4f %.4f] want=[%.4f %.4f %.4f %.4f]: %s\n",
+           rot,
+           static_cast<double>(out[0]), static_cast<double>(out[1]),
+           static_cast<double>(out[2]), static_cast<double>(out[3]),
+           static_cast<double>(want[0]), static_cast<double>(want[1]),
+           static_cast<double>(want[2]), static_cast<double>(want[3]),
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// FCADD V.2D, Vn, Vm, #90  — double-precision, 1 complex pair.
+bool probe_fcadd_2d(std::string& report, char (&buf)[256]) {
+  alignas(16) double n[2] = {1.5, 2.5};
+  alignas(16) double m[2] = {10.0, 20.0};
+  alignas(16) double out[2] = {0.0, 0.0};
+  __asm__ __volatile__(
+      "ldr q1, [%0]\n"
+      "ldr q2, [%1]\n"
+      ".inst 0x6ec2e420  // fcadd v0.2d, v1.2d, v2.2d, #90\n"
+      "str q0, [%2]\n"
+      :
+      : "r"(n), "r"(m), "r"(out)
+      : "v0", "v1", "v2", "memory");
+  double want[2] = {n[0] - m[1], n[1] + m[0]};
+  bool ok = approxd(out[0], want[0]) && approxd(out[1], want[1]);
+  snprintf(buf, sizeof(buf),
+           "  FCADD .2D #90  out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
+           out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// FCADD V.2S, Vn, Vm, #90  — Q=0 half-vector, 1 pair, top 64 bits cleared.
+bool probe_fcadd_2s(std::string& report, char (&buf)[256]) {
+  alignas(16) float n[4] = {1.0f, 2.0f, 99.0f, 99.0f};
+  alignas(16) float m[4] = {10.0f, 20.0f, 99.0f, 99.0f};
+  // Pre-load 0xdead… into the top half of v0 to confirm the JIT/interp
+  // zeros it after the FCADD (Q=0 semantics).
+  alignas(16) uint32_t prev[4] = {0xdeadbeefu, 0xdeadbeefu,
+                                   0xdeadbeefu, 0xdeadbeefu};
+  alignas(16) float out[4];
+  std::memcpy(out, prev, 16);
+  __asm__ __volatile__(
+      "ldr q1, [%0]\n"
+      "ldr q2, [%1]\n"
+      "ldr q0, [%2]\n"
+      ".inst 0x2e82e420  // fcadd v0.2s, v1.2s, v2.2s, #90\n"
+      "str q0, [%2]\n"
+      :
+      : "r"(n), "r"(m), "r"(out)
+      : "v0", "v1", "v2", "memory");
+  float want_lo[2] = {n[0] - m[1], n[1] + m[0]};
+  uint32_t out_hi_bits[2];
+  std::memcpy(out_hi_bits, &out[2], 8);
+  bool ok = approxf(out[0], want_lo[0]) && approxf(out[1], want_lo[1]) &&
+            out_hi_bits[0] == 0 && out_hi_bits[1] == 0;
+  snprintf(buf, sizeof(buf),
+           "  FCADD .2S #90  lo=[%.4f %.4f] hi=[%08x %08x]: %s\n",
+           static_cast<double>(out[0]), static_cast<double>(out[1]),
+           out_hi_bits[0], out_hi_bits[1], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// FCMLA V.4S, Vn, Vm, #rot  — single-precision, 2 complex pairs.
+// Vd is read-modify-write: Vd' += rot-shuffled (Vn * Vm).
+bool probe_fcmla_4s(std::string& report, char (&buf)[256], int rot) {
+  alignas(16) float n[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+  alignas(16) float m[4] = {5.0f, 6.0f, 7.0f, 8.0f};
+  alignas(16) float pre[4] = {100.0f, 200.0f, 300.0f, 400.0f};
+  alignas(16) float out[4];
+  std::memcpy(out, pre, 16);
+  if (rot == 0) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6e82c420  // fcmla v0.4s, v1.4s, v2.4s, #0\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  } else if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6e82cc20  // fcmla v0.4s, v1.4s, v2.4s, #90\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  } else if (rot == 180) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6e82d420  // fcmla v0.4s, v1.4s, v2.4s, #180\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  } else {  // 270
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x6e82dc20  // fcmla v0.4s, v1.4s, v2.4s, #270\n"
+        "str q0, [%2]\n"
+        :
+        : "r"(n), "r"(m), "r"(out)
+        : "v0", "v1", "v2", "memory");
+  }
+  float want[4];
+  for (int p = 0; p < 2; p++) {
+    float n_re = n[2 * p], n_im = n[2 * p + 1];
+    float m_re = m[2 * p], m_im = m[2 * p + 1];
+    float d_re = pre[2 * p], d_im = pre[2 * p + 1];
+    float r_re = 0, r_im = 0;
+    switch (rot) {
+      case 0:   r_re = d_re + n_re *  m_re; r_im = d_im + n_re *  m_im; break;
+      case 90:  r_re = d_re + n_im * -m_im; r_im = d_im + n_im *  m_re; break;
+      case 180: r_re = d_re + n_re * -m_re; r_im = d_im + n_re * -m_im; break;
+      case 270: r_re = d_re + n_im *  m_im; r_im = d_im + n_im * -m_re; break;
+    }
+    want[2 * p]     = r_re;
+    want[2 * p + 1] = r_im;
+  }
+  bool ok = approxf(out[0], want[0]) && approxf(out[1], want[1]) &&
+            approxf(out[2], want[2]) && approxf(out[3], want[3]);
+  snprintf(buf, sizeof(buf),
+           "  FCMLA .4S #%-3d out=[%.4f %.4f %.4f %.4f] want=[%.4f %.4f %.4f %.4f]: %s\n",
+           rot,
+           static_cast<double>(out[0]), static_cast<double>(out[1]),
+           static_cast<double>(out[2]), static_cast<double>(out[3]),
+           static_cast<double>(want[0]), static_cast<double>(want[1]),
+           static_cast<double>(want[2]), static_cast<double>(want[3]),
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// FCMLA V.2D, Vn, Vm, #90  — double-precision, 1 complex pair.
+bool probe_fcmla_2d(std::string& report, char (&buf)[256]) {
+  alignas(16) double n[2] = {1.5, 2.5};
+  alignas(16) double m[2] = {3.5, 4.5};
+  alignas(16) double pre[2] = {100.0, 200.0};
+  alignas(16) double out[2];
+  std::memcpy(out, pre, 16);
+  __asm__ __volatile__(
+      "ldr q1, [%0]\n"
+      "ldr q2, [%1]\n"
+      "ldr q0, [%2]\n"
+      ".inst 0x6ec2cc20  // fcmla v0.2d, v1.2d, v2.2d, #90\n"
+      "str q0, [%2]\n"
+      :
+      : "r"(n), "r"(m), "r"(out)
+      : "v0", "v1", "v2", "memory");
+  double want[2] = {pre[0] + n[1] * -m[1], pre[1] + n[1] * m[0]};
+  bool ok = approxd(out[0], want[0]) && approxd(out[1], want[1]);
+  snprintf(buf, sizeof(buf),
+           "  FCMLA .2D #90  out=[%.6f %.6f] want=[%.6f %.6f]: %s\n",
+           out[0], out[1], want[0], want[1], ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// FCMLA V.4S, Vn, Vm.s[idx], #rot — FP32 by-element.
+// Vm[idx] broadcasts ONE complex pair (Vm.s[2*idx], Vm.s[2*idx+1]) across
+// every output complex pair of Vd.  Vd is read-modify-write.
+// Encoded inst opcodes (handoff-58 llvm-mc):
+//   idx=0: 0x6F821020 #0   0x6F823020 #90   0x6F825020 #180  0x6F827020 #270
+//   idx=1: 0x6F821820 #0   0x6F823820 #90   0x6F825820 #180  0x6F827820 #270
+bool probe_fcmla_4s_idx(std::string& report, char (&buf)[256], int rot, int idx) {
+  alignas(16) float n[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+  alignas(16) float m[4] = {5.0f, 6.0f, 7.0f, 8.0f};
+  alignas(16) float pre[4] = {100.0f, 200.0f, 300.0f, 400.0f};
+  alignas(16) float out[4];
+  std::memcpy(out, pre, 16);
+  if (idx == 0) {
+    if (rot == 0) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f821020  // fcmla v0.4s, v1.4s, v2.s[0], #0\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else if (rot == 90) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f823020  // fcmla v0.4s, v1.4s, v2.s[0], #90\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else if (rot == 180) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f825020  // fcmla v0.4s, v1.4s, v2.s[0], #180\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f827020  // fcmla v0.4s, v1.4s, v2.s[0], #270\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    }
+  } else {  // idx == 1
+    if (rot == 0) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f821820  // fcmla v0.4s, v1.4s, v2.s[1], #0\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else if (rot == 90) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f823820  // fcmla v0.4s, v1.4s, v2.s[1], #90\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else if (rot == 180) {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f825820  // fcmla v0.4s, v1.4s, v2.s[1], #180\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    } else {
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6f827820  // fcmla v0.4s, v1.4s, v2.s[1], #270\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+    }
+  }
+  // Reference: Vm[idx] is the single broadcast complex pair.
+  float m_re = m[2 * idx];
+  float m_im = m[2 * idx + 1];
+  float want[4];
+  for (int p = 0; p < 2; p++) {
+    float n_re = n[2 * p], n_im = n[2 * p + 1];
+    float d_re = pre[2 * p], d_im = pre[2 * p + 1];
+    float r_re = 0, r_im = 0;
+    switch (rot) {
+      case 0:   r_re = d_re + n_re *  m_re; r_im = d_im + n_re *  m_im; break;
+      case 90:  r_re = d_re + n_im * -m_im; r_im = d_im + n_im *  m_re; break;
+      case 180: r_re = d_re + n_re * -m_re; r_im = d_im + n_re * -m_im; break;
+      case 270: r_re = d_re + n_im *  m_im; r_im = d_im + n_im * -m_re; break;
+    }
+    want[2 * p]     = r_re;
+    want[2 * p + 1] = r_im;
+  }
+  bool ok = approxf(out[0], want[0]) && approxf(out[1], want[1]) &&
+            approxf(out[2], want[2]) && approxf(out[3], want[3]);
+  snprintf(buf, sizeof(buf),
+           "  FCMLA .4S[%d] #%-3d out=[%.4f %.4f %.4f %.4f] "
+           "want=[%.4f %.4f %.4f %.4f]: %s\n",
+           idx, rot,
+           static_cast<double>(out[0]), static_cast<double>(out[1]),
+           static_cast<double>(out[2]), static_cast<double>(out[3]),
+           static_cast<double>(want[0]), static_cast<double>(want[1]),
+           static_cast<double>(want[2]), static_cast<double>(want[3]),
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
+// FCADD V.8H, Vn, Vm, #rot — half-precision, 4 complex pairs per vector.
+// llvm-mc-verified .inst opcodes:
+//   fcadd v0.4h, v1.4h, v2.4h, #90  = 0x2e42e420
+//   fcadd v0.4h, v1.4h, v2.4h, #270 = 0x2e42f420
+//   fcadd v0.8h, v1.8h, v2.8h, #90  = 0x6e42e420
+//   fcadd v0.8h, v1.8h, v2.8h, #270 = 0x6e42f420
+//   fcmla v0.8h, v1.8h, v2.8h, #0   = 0x6e42c420
+//   fcmla v0.8h, v1.8h, v2.8h, #90  = 0x6e42cc20
+//   fcmla v0.8h, v1.8h, v2.8h, #180 = 0x6e42d420
+//   fcmla v0.8h, v1.8h, v2.8h, #270 = 0x6e42dc20
+//   fcmla v0.4h, v1.4h, v2.4h, #0   = 0x2e42c420
+//   fcmla v0.4h, v1.4h, v2.h[0], #0   = 0x2f421020 (Q=0, .4H idx=0)
+//   fcmla v0.4h, v1.4h, v2.h[1], #90  = 0x2f623020 (Q=0, .4H idx=1)
+//   fcmla v0.8h, v1.8h, v2.h[0], #0   = 0x6f421020 (Q=1, .8H idx=0)
+//   fcmla v0.8h, v1.8h, v2.h[1], #0   = 0x6f621020 (idx=1: L=1)
+//   fcmla v0.8h, v1.8h, v2.h[2], #0   = 0x6f421820 (idx=2: H=1)
+//   fcmla v0.8h, v1.8h, v2.h[3], #270 = 0x6f627820
+
+bool probe_fcadd_fp16_8h(std::string& report, char (&buf)[256], int rot) {
+  alignas(16) uint16_t n[8], m[8], out[8];
+  for (int i = 0; i < 8; i++) {
+    n[i] = SingleToHalf(1.0f + i * 0.5f);
+    m[i] = SingleToHalf(2.0f + i * 0.25f);
+    out[i] = 0;
+  }
+  if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6e42e420  // fcadd v0.8h, v1.8h, v2.8h, #90\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        ".inst 0x6e42f420  // fcadd v0.8h, v1.8h, v2.8h, #270\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint16_t want[8];
+  for (int p = 0; p < 4; p++) {
+    float n_re = HalfToSingle(n[2 * p]);
+    float n_im = HalfToSingle(n[2 * p + 1]);
+    float m_re = HalfToSingle(m[2 * p]);
+    float m_im = HalfToSingle(m[2 * p + 1]);
+    if (rot == 90) {
+      want[2 * p]     = SingleToHalf(n_re - m_im);
+      want[2 * p + 1] = SingleToHalf(n_im + m_re);
+    } else {
+      want[2 * p]     = SingleToHalf(n_re + m_im);
+      want[2 * p + 1] = SingleToHalf(n_im - m_re);
+    }
+  }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) ok = ok && approx_half(out[i], want[i]);
+  snprintf(buf, sizeof(buf),
+           "  FCADD .8H #%-3d out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           rot,
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+bool probe_fcadd_fp16_4h(std::string& report, char (&buf)[256], int rot) {
+  // Q=0 form: lanes 0..3 active; upper 64 bits of Vd must be cleared.
+  alignas(16) uint16_t n[8] = {SingleToHalf(1.0f), SingleToHalf(2.0f),
+                                SingleToHalf(3.0f), SingleToHalf(4.0f),
+                                0xdead, 0xbeef, 0xcafe, 0xf00d};
+  alignas(16) uint16_t m[8] = {SingleToHalf(0.5f), SingleToHalf(1.5f),
+                                SingleToHalf(2.5f), SingleToHalf(3.5f),
+                                0xdead, 0xbeef, 0xcafe, 0xf00d};
+  alignas(16) uint16_t prev[8] = {0xdeadu, 0xbeefu, 0xcafeu, 0xf00du,
+                                   0xdeadu, 0xbeefu, 0xcafeu, 0xf00du};
+  alignas(16) uint16_t out[8];
+  std::memcpy(out, prev, 16);
+  if (rot == 90) {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x2e42e420  // fcadd v0.4h, v1.4h, v2.4h, #90\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  } else {
+    __asm__ __volatile__(
+        "ldr q1, [%0]\n"
+        "ldr q2, [%1]\n"
+        "ldr q0, [%2]\n"
+        ".inst 0x2e42f420  // fcadd v0.4h, v1.4h, v2.4h, #270\n"
+        "str q0, [%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+  }
+  uint16_t want[4];
+  for (int p = 0; p < 2; p++) {
+    float n_re = HalfToSingle(n[2 * p]);
+    float n_im = HalfToSingle(n[2 * p + 1]);
+    float m_re = HalfToSingle(m[2 * p]);
+    float m_im = HalfToSingle(m[2 * p + 1]);
+    if (rot == 90) {
+      want[2 * p]     = SingleToHalf(n_re - m_im);
+      want[2 * p + 1] = SingleToHalf(n_im + m_re);
+    } else {
+      want[2 * p]     = SingleToHalf(n_re + m_im);
+      want[2 * p + 1] = SingleToHalf(n_im - m_re);
+    }
+  }
+  bool ok = approx_half(out[0], want[0]) && approx_half(out[1], want[1]) &&
+            approx_half(out[2], want[2]) && approx_half(out[3], want[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  FCADD .4H #%-3d lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           rot, out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+bool probe_fcmla_fp16_8h(std::string& report, char (&buf)[256], int rot) {
+  alignas(16) uint16_t n[8], m[8], pre[8], out[8];
+  for (int i = 0; i < 8; i++) {
+    n[i] = SingleToHalf(0.5f + i * 0.25f);
+    m[i] = SingleToHalf(1.0f + i * 0.5f);
+    pre[i] = SingleToHalf(2.0f + i);
+  }
+  std::memcpy(out, pre, 16);
+  switch (rot) {
+    case 0:
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6e42c420  // fcmla v0.8h, v1.8h, v2.8h, #0\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+      break;
+    case 90:
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6e42cc20  // fcmla v0.8h, v1.8h, v2.8h, #90\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+      break;
+    case 180:
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6e42d420  // fcmla v0.8h, v1.8h, v2.8h, #180\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+      break;
+    default:
+      __asm__ __volatile__(
+          "ldr q1, [%0]\n"
+          "ldr q2, [%1]\n"
+          "ldr q0, [%2]\n"
+          ".inst 0x6e42dc20  // fcmla v0.8h, v1.8h, v2.8h, #270\n"
+          "str q0, [%2]\n"
+          : : "r"(n), "r"(m), "r"(out) : "v0", "v1", "v2", "memory");
+      break;
+  }
+  uint16_t want[8];
+  for (int p = 0; p < 4; p++) {
+    float n_re = HalfToSingle(n[2 * p]);
+    float n_im = HalfToSingle(n[2 * p + 1]);
+    float m_re = HalfToSingle(m[2 * p]);
+    float m_im = HalfToSingle(m[2 * p + 1]);
+    float d_re = HalfToSingle(pre[2 * p]);
+    float d_im = HalfToSingle(pre[2 * p + 1]);
+    float r_re = 0, r_im = 0;
+    switch (rot) {
+      case 0:   r_re = d_re + n_re *  m_re; r_im = d_im + n_re *  m_im; break;
+      case 90:  r_re = d_re + n_im * -m_im; r_im = d_im + n_im *  m_re; break;
+      case 180: r_re = d_re + n_re * -m_re; r_im = d_im + n_re * -m_im; break;
+      case 270: r_re = d_re + n_im *  m_im; r_im = d_im + n_im * -m_re; break;
+    }
+    want[2 * p]     = SingleToHalf(r_re);
+    want[2 * p + 1] = SingleToHalf(r_im);
+  }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) ok = ok && approx_half(out[i], want[i]);
+  snprintf(buf, sizeof(buf),
+           "  FCMLA .8H #%-3d out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           rot, out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+bool probe_fcmla_fp16_8h_idx(std::string& report, char (&buf)[256], int rot,
+                              int idx) {
+  alignas(16) uint16_t n[8], m[8], pre[8], out[8];
+  for (int i = 0; i < 8; i++) {
+    n[i] = SingleToHalf(0.5f + i * 0.25f);
+    m[i] = SingleToHalf(1.0f + i * 0.5f);
+    pre[i] = SingleToHalf(2.0f + i);
+  }
+  std::memcpy(out, pre, 16);
+  // Each instruction encoded with its specific (rot, idx) pair.
+  // idx encoding: bit21=L, bit11=H, index = (H<<1)|L.
+  //   idx=0: 0x6f4?1?20 (L=0,H=0)  idx=1: 0x6f6?1?20 (L=1)
+  //   idx=2: 0x6f4?1?20 (H=1, bit11=1 → +0x800)  idx=3: 0x6f6?1?20 + bit11
+  //   rot=0/90/180/270 → bit13:14 = 00/01/10/11 (so opcode bits 12=1, 13:14)
+  // Pre-derived encodings:
+  uint32_t enc;
+  // Build encoding manually: base 0x6f421020 + (L<<21) + (H<<11) + (rot[0]<<13) + (rot[1]<<14)
+  uint32_t H_bit = (idx >> 1) & 1;
+  uint32_t L_bit = idx & 1;
+  uint32_t rot_field = (rot == 0) ? 0 : (rot == 90) ? 1 : (rot == 180) ? 2 : 3;
+  enc = 0x6f421020u | (L_bit << 21) | (H_bit << 11) |
+        ((rot_field & 1) << 13) | (((rot_field >> 1) & 1) << 14);
+  // Use a switch over (rot,idx) for static .inst encoding.
+  switch (enc) {
+    case 0x6f421020u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f421020\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f621020u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f621020\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f421820u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f421820\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f621820u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f621820\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f423020u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f423020\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f625020u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f625020\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f627820u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f627820\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    case 0x6f425820u:
+      __asm__ __volatile__("ldr q1,[%0]\nldr q2,[%1]\nldr q0,[%2]\n.inst 0x6f425820\nstr q0,[%2]\n"
+        : : "r"(n), "r"(m), "r"(out) : "v0","v1","v2","memory"); break;
+    default:
+      snprintf(buf, sizeof(buf),
+               "  FCMLA .8H[%d] #%-3d: SKIP (enc=0x%08x not pre-cased)\n",
+               idx, rot, enc);
+      report += buf;
+      return true;
+  }
+  uint16_t want[8];
+  float m_re = HalfToSingle(m[2 * idx]);
+  float m_im = HalfToSingle(m[2 * idx + 1]);
+  for (int p = 0; p < 4; p++) {
+    float n_re = HalfToSingle(n[2 * p]);
+    float n_im = HalfToSingle(n[2 * p + 1]);
+    float d_re = HalfToSingle(pre[2 * p]);
+    float d_im = HalfToSingle(pre[2 * p + 1]);
+    float r_re = 0, r_im = 0;
+    switch (rot) {
+      case 0:   r_re = d_re + n_re *  m_re; r_im = d_im + n_re *  m_im; break;
+      case 90:  r_re = d_re + n_im * -m_im; r_im = d_im + n_im *  m_re; break;
+      case 180: r_re = d_re + n_re * -m_re; r_im = d_im + n_re * -m_im; break;
+      case 270: r_re = d_re + n_im *  m_im; r_im = d_im + n_im * -m_re; break;
+    }
+    want[2 * p]     = SingleToHalf(r_re);
+    want[2 * p + 1] = SingleToHalf(r_im);
+  }
+  bool ok = true;
+  for (int i = 0; i < 8; i++) ok = ok && approx_half(out[i], want[i]);
+  snprintf(buf, sizeof(buf),
+           "  FCMLA .8H[%d] #%-3d out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           idx, rot,
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+// endregion
+
+}  // namespace
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
+                                                        jobject /*this*/) {
+  std::string report = "Armv8.3-FCMA instruction probe:\n";
+  char buf[256];
+  int total = 0, passed = 0;
+
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "Armv8.3-FCMA probe:");
+
+  auto run = [&](bool ok) {
+    total++;
+    if (ok) passed++;
+  };
+
+  run(probe_fcadd_4s(report, buf, 90));
+  run(probe_fcadd_4s(report, buf, 270));
+  run(probe_fcadd_2d(report, buf));
+  run(probe_fcadd_2s(report, buf));
+  run(probe_fcmla_4s(report, buf, 0));
+  run(probe_fcmla_4s(report, buf, 90));
+  run(probe_fcmla_4s(report, buf, 180));
+  run(probe_fcmla_4s(report, buf, 270));
+  run(probe_fcmla_2d(report, buf));
+  // FCMLA by element (Armv8.3-FCMA idx) — handoff-58 §H1.
+  // All 4 rotations × 2 indices = 8 probes; covers Vm broadcast & rot table.
+  run(probe_fcmla_4s_idx(report, buf, 0,   0));
+  run(probe_fcmla_4s_idx(report, buf, 90,  0));
+  run(probe_fcmla_4s_idx(report, buf, 180, 0));
+  run(probe_fcmla_4s_idx(report, buf, 270, 0));
+  run(probe_fcmla_4s_idx(report, buf, 0,   1));
+  run(probe_fcmla_4s_idx(report, buf, 90,  1));
+  run(probe_fcmla_4s_idx(report, buf, 180, 1));
+  run(probe_fcmla_4s_idx(report, buf, 270, 1));
+
+  // region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
+  // 14 FP16 probes: FCADD .8H {#90,#270}, FCADD .4H {#90,#270} (Q=0
+  // zero-clear check), FCMLA .8H {#0,#90,#180,#270}, plus 6 FCMLA .8H idx
+  // covering all 4 indices and a sample of rotations.
+  run(probe_fcadd_fp16_8h(report, buf, 90));
+  run(probe_fcadd_fp16_8h(report, buf, 270));
+  run(probe_fcadd_fp16_4h(report, buf, 90));
+  run(probe_fcadd_fp16_4h(report, buf, 270));
+  run(probe_fcmla_fp16_8h(report, buf, 0));
+  run(probe_fcmla_fp16_8h(report, buf, 90));
+  run(probe_fcmla_fp16_8h(report, buf, 180));
+  run(probe_fcmla_fp16_8h(report, buf, 270));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 0,   0));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 0,   1));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 0,   2));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 0,   3));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 90,  0));
+  run(probe_fcmla_fp16_8h_idx(report, buf, 270, 3));
+  // endregion
+
+  snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
+  report += buf;
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "Summary: %d/%d OK",
+                      passed, total);
+  return env->NewStringUTF(report.c_str());
+}
