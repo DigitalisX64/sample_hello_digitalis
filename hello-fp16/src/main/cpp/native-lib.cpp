@@ -224,6 +224,54 @@ FP16_OP_3SRC(fmsub)
 FP16_OP_3SRC(fnmadd)
 FP16_OP_3SRC(fnmsub)
 
+// FP32 / FP64 three-source FMADD / FMSUB / FNMADD / FNMSUB probes.
+// These hit the FpDataProc3 JIT case arms (Vfmadd231ss / Vfnmadd231ss /
+// Vfnmsub231ss / Vfmsub231ss for FP32, ...sd for FP64).  llvm-mc-verified
+// encodings:
+//   0x1f020c20 fmadd  s0, s1, s2, s3      0x1f420c20 fmadd  d0, d1, d2, d3
+//   0x1f028c20 fmsub  s0, s1, s2, s3      0x1f428c20 fmsub  d0, d1, d2, d3
+//   0x1f220c20 fnmadd s0, s1, s2, s3      0x1f620c20 fnmadd d0, d1, d2, d3
+//   0x1f228c20 fnmsub s0, s1, s2, s3      0x1f628c20 fnmsub d0, d1, d2, d3
+#define FP32_OP_3SRC(MNEMONIC)                                                 \
+  float fp32_##MNEMONIC(float a, float b, float c) {                           \
+    float r;                                                                   \
+    asm volatile(                                                              \
+        "ldr s1, [%[pa]]\n\t"                                                  \
+        "ldr s2, [%[pb]]\n\t"                                                  \
+        "ldr s3, [%[pc]]\n\t"                                                  \
+        #MNEMONIC " s0, s1, s2, s3\n\t"                                        \
+        "str s0, [%[pr]]\n\t"                                                  \
+        :                                                                      \
+        : [pa] "r"(&a), [pb] "r"(&b), [pc] "r"(&c), [pr] "r"(&r)               \
+        : "v0", "v1", "v2", "v3", "memory");                                   \
+    return r;                                                                  \
+  }
+
+FP32_OP_3SRC(fmadd)
+FP32_OP_3SRC(fmsub)
+FP32_OP_3SRC(fnmadd)
+FP32_OP_3SRC(fnmsub)
+
+#define FP64_OP_3SRC(MNEMONIC)                                                 \
+  double fp64_##MNEMONIC(double a, double b, double c) {                       \
+    double r;                                                                  \
+    asm volatile(                                                              \
+        "ldr d1, [%[pa]]\n\t"                                                  \
+        "ldr d2, [%[pb]]\n\t"                                                  \
+        "ldr d3, [%[pc]]\n\t"                                                  \
+        #MNEMONIC " d0, d1, d2, d3\n\t"                                        \
+        "str d0, [%[pr]]\n\t"                                                  \
+        :                                                                      \
+        : [pa] "r"(&a), [pb] "r"(&b), [pc] "r"(&c), [pr] "r"(&r)               \
+        : "v0", "v1", "v2", "v3", "memory");                                   \
+    return r;                                                                  \
+  }
+
+FP64_OP_3SRC(fmadd)
+FP64_OP_3SRC(fmsub)
+FP64_OP_3SRC(fnmadd)
+FP64_OP_3SRC(fnmsub)
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -829,6 +877,54 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
                      u64_of_double(std::fmin(-1.5, 3.5)))) ok++;
   total++; if (check(report, buf, "FNMUL.d",  u64_of_double(fp64_fnmul ( 1.5, 3.5)),
                      u64_of_double(-(1.5 * 3.5)))) ok++;
+
+  // Scalar FP32 (S) / FP64 (D) FpDataProc3 probes — FMADD / FMSUB / FNMADD /
+  // FNMSUB.  These hit the FMA3 JIT paths (Vfmadd231ss / Vfnmadd231ss /
+  // Vfnmsub231ss / Vfmsub231ss for S; ...sd for D).  ARM semantics:
+  //   FMADD   Rd = Ra + Rn*Rm    (single rounding)
+  //   FMSUB   Rd = Ra - Rn*Rm
+  //   FNMADD  Rd = -(Ra + Rn*Rm)
+  //   FNMSUB  Rd = Rn*Rm - Ra
+  // We use inputs (1.5, 2.5, 0.25) where every n*m+a, n*m-a, etc. is
+  // representable exactly in both FP32 and FP64, so the JIT FMA result and
+  // the host's std::fma reference are bit-identical regardless of rounding.
+  {
+    const float fn_s = 1.5f, fm_s = 2.5f, fa_s = 0.25f;
+    const float ref_madd_s  = std::fma(fn_s, fm_s, fa_s);
+    const float ref_msub_s  = std::fma(-fn_s, fm_s, fa_s);
+    const float ref_nmadd_s = -std::fma(fn_s, fm_s, fa_s);
+    const float ref_nmsub_s = std::fma(fn_s, fm_s, -fa_s);
+    total++; if (check(report, buf, "FMADD.s",
+                       u32_of_float(fp32_fmadd (fn_s, fm_s, fa_s)),
+                       u32_of_float(ref_madd_s))) ok++;
+    total++; if (check(report, buf, "FMSUB.s",
+                       u32_of_float(fp32_fmsub (fn_s, fm_s, fa_s)),
+                       u32_of_float(ref_msub_s))) ok++;
+    total++; if (check(report, buf, "FNMADD.s",
+                       u32_of_float(fp32_fnmadd(fn_s, fm_s, fa_s)),
+                       u32_of_float(ref_nmadd_s))) ok++;
+    total++; if (check(report, buf, "FNMSUB.s",
+                       u32_of_float(fp32_fnmsub(fn_s, fm_s, fa_s)),
+                       u32_of_float(ref_nmsub_s))) ok++;
+
+    const double fn_d = 1.5, fm_d = 2.5, fa_d = 0.25;
+    const double ref_madd_d  = std::fma(fn_d, fm_d, fa_d);
+    const double ref_msub_d  = std::fma(-fn_d, fm_d, fa_d);
+    const double ref_nmadd_d = -std::fma(fn_d, fm_d, fa_d);
+    const double ref_nmsub_d = std::fma(fn_d, fm_d, -fa_d);
+    total++; if (check(report, buf, "FMADD.d",
+                       u64_of_double(fp64_fmadd (fn_d, fm_d, fa_d)),
+                       u64_of_double(ref_madd_d))) ok++;
+    total++; if (check(report, buf, "FMSUB.d",
+                       u64_of_double(fp64_fmsub (fn_d, fm_d, fa_d)),
+                       u64_of_double(ref_msub_d))) ok++;
+    total++; if (check(report, buf, "FNMADD.d",
+                       u64_of_double(fp64_fnmadd(fn_d, fm_d, fa_d)),
+                       u64_of_double(ref_nmadd_d))) ok++;
+    total++; if (check(report, buf, "FNMSUB.d",
+                       u64_of_double(fp64_fnmsub(fn_d, fm_d, fa_d)),
+                       u64_of_double(ref_nmsub_d))) ok++;
+  }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
   total++; if (check(report, buf, "FCVT S<-H 1.5",
