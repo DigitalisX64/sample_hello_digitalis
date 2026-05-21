@@ -32,6 +32,53 @@
 //-------------------------------------------------------------------------
 #define HELPER_CLASS_NAME \
   "com/sample/helper/NDKHelper"  // Class name of helper function
+
+// region digitalis
+// In screenshot-test mode, skip the per-frame FPS overlay update so the
+// captured image is bit-stable across runs. The launching
+// ScreenshotTestRule attaches a boolean Intent extra "screenshot_test_mode";
+// we read it once via JNI and stash the result on the Engine.
+static bool ReadScreenshotTestModeExtra(android_app* app) {
+  if (app == nullptr || app->activity == nullptr ||
+      app->activity->vm == nullptr || app->activity->clazz == nullptr) {
+    return false;
+  }
+  JavaVM* vm = app->activity->vm;
+  JNIEnv* env = nullptr;
+  if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK || env == nullptr) {
+    return false;
+  }
+  jobject activity = app->activity->clazz;
+  jclass activity_class = env->GetObjectClass(activity);
+  jmethodID get_intent = env->GetMethodID(activity_class, "getIntent",
+                                          "()Landroid/content/Intent;");
+  bool result = false;
+  if (get_intent != nullptr) {
+    jobject intent = env->CallObjectMethod(activity, get_intent);
+    if (intent != nullptr) {
+      jclass intent_class = env->GetObjectClass(intent);
+      jmethodID get_boolean_extra = env->GetMethodID(
+          intent_class, "getBooleanExtra", "(Ljava/lang/String;Z)Z");
+      if (get_boolean_extra != nullptr) {
+        jstring key = env->NewStringUTF("screenshot_test_mode");
+        jboolean value =
+            env->CallBooleanMethod(intent, get_boolean_extra, key, JNI_FALSE);
+        result = (value == JNI_TRUE);
+        env->DeleteLocalRef(key);
+      }
+      env->DeleteLocalRef(intent_class);
+      env->DeleteLocalRef(intent);
+    }
+  }
+  env->DeleteLocalRef(activity_class);
+  if (env->ExceptionCheck()) {
+    env->ExceptionClear();
+  }
+  vm->DetachCurrentThread();
+  return result;
+}
+// endregion
+
 //-------------------------------------------------------------------------
 // Shared state for our app.
 //-------------------------------------------------------------------------
@@ -56,6 +103,10 @@ class Engine {
   ASensorManager* sensor_manager_;
   const ASensor* accelerometer_sensor_;
   ASensorEventQueue* sensor_event_queue_;
+
+  // region digitalis
+  bool screenshot_test_mode_ = false;
+  // endregion
 
   void UpdateFPS(float fFPS);
   void ShowUI();
@@ -166,9 +217,14 @@ int Engine::InitDisplay(android_app* app) {
  */
 void Engine::DrawFrame() {
   float fps;
-  if (monitor_.Update(fps)) {
+  // region digitalis
+  // Skip the FPS overlay update in screenshot-test mode so the Java-side text
+  // view does not introduce a per-second-changing element into the captured
+  // image.
+  if (!screenshot_test_mode_ && monitor_.Update(fps)) {
     UpdateFPS(fps);
   }
+  // endregion
   renderer_.Update(monitor_.GetCurrentTime());
 
   // Just fill the screen with a color.
@@ -338,6 +394,9 @@ void Engine::SetState(android_app* state) {
   doubletap_detector_.SetConfiguration(app_->config);
   drag_detector_.SetConfiguration(app_->config);
   pinch_detector_.SetConfiguration(app_->config);
+  // region digitalis
+  screenshot_test_mode_ = ReadScreenshotTestModeExtra(app_);
+  // endregion
 }
 
 bool Engine::IsReady() {

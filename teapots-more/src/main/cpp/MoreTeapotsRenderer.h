@@ -111,6 +111,12 @@ class MoreTeapotsRenderer {
   bool Bind(ndk_helper::TapCamera* camera);
   void Unload();
   void UpdateViewport();
+  // region digitalis
+  void SetScreenshotTestMode(bool mode) { screenshot_test_mode_ = mode; }
+
+ private:
+  bool screenshot_test_mode_ = false;
+  // endregion
 };
 
 #endif

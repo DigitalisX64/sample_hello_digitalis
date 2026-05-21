@@ -23,6 +23,7 @@
 //--------------------------------------------------------------------------------
 #include "MoreTeapotsRenderer.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include <vector>
@@ -113,12 +114,29 @@ void MoreTeapotsRenderer::Init(const int32_t numX, const int32_t numY,
       for (int32_t z = 0; z < teapot_z_; ++z) {
         vec_mat_models_.push_back(ndk_helper::Mat4::Translation(
             x * gap_x + offset_x, y * gap_y + offset_y, z * gap_z + offset_z));
-        vec_colors_.push_back(ndk_helper::Vec3(
-            random() / float(RAND_MAX * 1.1), random() / float(RAND_MAX * 1.1),
-            random() / float(RAND_MAX * 1.1)));
-
-        float rotation_x = random() / float(RAND_MAX) - 0.5f;
-        float rotation_y = random() / float(RAND_MAX) - 0.5f;
+        // region digitalis
+        // In screenshot-test mode, derive colours and rotations deterministically
+        // from the per-teapot index instead of via the libc PRNG so the
+        // captured frame is identical across runs. The original random() path
+        // is kept for non-test launches.
+        float color_r, color_g, color_b;
+        float rotation_x, rotation_y;
+        if (screenshot_test_mode_) {
+          int32_t idx = (x * teapot_y_ + y) * teapot_z_ + z;
+          color_r = ((idx * 1664525u + 1013904223u) & 0xFFu) / 256.0f;
+          color_g = ((idx * 22695477u + 1u) & 0xFFu) / 256.0f;
+          color_b = ((idx * 1103515245u + 12345u) & 0xFFu) / 256.0f;
+          rotation_x = (((idx * 48271u) & 0xFFu) / 256.0f) - 0.5f;
+          rotation_y = (((idx * 16807u) & 0xFFu) / 256.0f) - 0.5f;
+        } else {
+          color_r = random() / float(RAND_MAX * 1.1);
+          color_g = random() / float(RAND_MAX * 1.1);
+          color_b = random() / float(RAND_MAX * 1.1);
+          rotation_x = random() / float(RAND_MAX) - 0.5f;
+          rotation_y = random() / float(RAND_MAX) - 0.5f;
+        }
+        vec_colors_.push_back(ndk_helper::Vec3(color_r, color_g, color_b));
+        // endregion
         vec_rotations_.push_back(
             ndk_helper::Vec2(rotation_x * 0.05f, rotation_y * 0.05f));
         vec_current_rotations_.push_back(
@@ -316,7 +334,13 @@ void MoreTeapotsRenderer::Render() {
     for (int32_t i = 0; i < teapot_x_ * teapot_y_ * teapot_z_; ++i) {
       // Rotation
       float x, y;
-      vec_current_rotations_[i] += vec_rotations_[i];
+      // region digitalis
+      // Freeze rotation at the initial value when running under the screenshot
+      // test rule so the rendered scene is identical frame-to-frame.
+      if (!screenshot_test_mode_) {
+        vec_current_rotations_[i] += vec_rotations_[i];
+      }
+      // endregion
       vec_current_rotations_[i].Value(x, y);
       ndk_helper::Mat4 mat_rotation =
           ndk_helper::Mat4::RotationX(x) * ndk_helper::Mat4::RotationY(y);
@@ -346,7 +370,13 @@ void MoreTeapotsRenderer::Render() {
       glUniform4f(shader_param_.material_diffuse_, x, y, z, 1.f);
 
       // Rotation
-      vec_current_rotations_[i] += vec_rotations_[i];
+      // region digitalis
+      // Freeze rotation at the initial value when running under the screenshot
+      // test rule so the rendered scene is identical frame-to-frame.
+      if (!screenshot_test_mode_) {
+        vec_current_rotations_[i] += vec_rotations_[i];
+      }
+      // endregion
       vec_current_rotations_[i].Value(x, y);
       ndk_helper::Mat4 mat_rotation =
           ndk_helper::Mat4::RotationX(x) * ndk_helper::Mat4::RotationY(y);
