@@ -994,6 +994,132 @@ bool probe_fsqrt_4h_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// Vector FABS FP16 .8H — sign-bit clear on all 8 half-lanes.
+bool probe_fabs_8h(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(-1.0f),  SingleToHalf(2.0f),  SingleToHalf(-3.5f),
+      SingleToHalf(4.25f),  SingleToHalf(-0.0f), SingleToHalf(0.0f),
+      SingleToHalf(-65504.0f), SingleToHalf(0.5f),
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fabs v0.8h, v1.8h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want[8] = {
+      SingleToHalf(1.0f),  SingleToHalf(2.0f),  SingleToHalf(3.5f),
+      SingleToHalf(4.25f), SingleToHalf(0.0f),  SingleToHalf(0.0f),
+      SingleToHalf(65504.0f), SingleToHalf(0.5f),
+  };
+  bool ok = true;
+  for (int i = 0; i < 8; i++) {
+    if (out[i] != want[i]) ok = false;
+  }
+  snprintf(buf, sizeof(buf),
+           "  fabs .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Vector FABS FP16 .4H (Q=0) — sign-bit clear on low 4 lanes; upper 4 must
+// be zero on write.
+bool probe_fabs_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(-1.5f), SingleToHalf(2.75f),
+      SingleToHalf(-3.0f), SingleToHalf(4.0f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fabs v0.4h, v1.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want_lo[4] = {SingleToHalf(1.5f), SingleToHalf(2.75f),
+                               SingleToHalf(3.0f), SingleToHalf(4.0f)};
+  bool ok = (out[0] == want_lo[0]) && (out[1] == want_lo[1]) &&
+            (out[2] == want_lo[2]) && (out[3] == want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  fabs .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Vector FNEG FP16 .8H — sign-bit flip on all 8 half-lanes.
+bool probe_fneg_8h(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.0f),  SingleToHalf(-2.0f), SingleToHalf(3.5f),
+      SingleToHalf(-4.25f), SingleToHalf(0.0f), SingleToHalf(-0.0f),
+      SingleToHalf(65504.0f), SingleToHalf(-0.5f),
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fneg v0.8h, v1.8h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want[8] = {
+      SingleToHalf(-1.0f),  SingleToHalf(2.0f),  SingleToHalf(-3.5f),
+      SingleToHalf(4.25f),  SingleToHalf(-0.0f), SingleToHalf(0.0f),
+      SingleToHalf(-65504.0f), SingleToHalf(0.5f),
+  };
+  bool ok = true;
+  for (int i = 0; i < 8; i++) {
+    if (out[i] != want[i]) ok = false;
+  }
+  snprintf(buf, sizeof(buf),
+           "  fneg .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// Vector FNEG FP16 .4H (Q=0) — sign-bit flip on low 4 lanes; upper 4 must
+// be zero on write.
+bool probe_fneg_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.5f), SingleToHalf(-2.75f),
+      SingleToHalf(3.0f), SingleToHalf(-4.0f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "fneg v0.4h, v1.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want_lo[4] = {SingleToHalf(-1.5f), SingleToHalf(2.75f),
+                               SingleToHalf(-3.0f), SingleToHalf(4.0f)};
+  bool ok = (out[0] == want_lo[0]) && (out[1] == want_lo[1]) &&
+            (out[2] == want_lo[2]) && (out[3] == want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  fneg .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 // Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
 bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
   alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
@@ -1147,6 +1273,11 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   // FP16 vector FSQRT (F16C round-trip JIT path).
   run(probe_fsqrt_8h(report, buf));
   run(probe_fsqrt_4h_zero_upper(report, buf));
+  // FP16 vector FABS / FNEG (bit-mask JIT path; no F16C needed).
+  run(probe_fabs_8h(report, buf));
+  run(probe_fabs_4h_zero_upper(report, buf));
+  run(probe_fneg_8h(report, buf));
+  run(probe_fneg_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
