@@ -47,6 +47,10 @@ class ScreenshotTestRule(
         val intent = Intent().apply {
             component = ComponentName(parts[0], parts[1])
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Samples whose content is intrinsically time-varying (e.g. live
+            // counters, live clocks) check this extra and freeze their UI to a
+            // deterministic state so the screenshot reference is stable.
+            putExtra("screenshot_test_mode", true)
         }
         instrumentation.context.startActivity(intent)
 
@@ -61,8 +65,26 @@ class ScreenshotTestRule(
         // These contain dynamic content (clock, battery) that changes between runs
         val fullScreen = uiAutomation!!.takeScreenshot()
         assertNotNull("UiAutomation.takeScreenshot() returned null", fullScreen)
-        val actual = cropSystemBars(fullScreen)
+        Log.i(TAG, "fullScreen config=${fullScreen.config} hasAlpha=${fullScreen.hasAlpha()} premul=${fullScreen.isPremultiplied} w=${fullScreen.width} h=${fullScreen.height}")
+        val cropped = cropSystemBars(fullScreen)
         fullScreen.recycle()
+        // region digitalis
+        // UiAutomation.takeScreenshot() can return a HARDWARE-config bitmap whose
+        // getPixels() reads silently fail (returning zeros) while bitmap.compress()
+        // still works correctly via the GPU path. The discrepancy yields a false
+        // "50% match" on solid-colour surfaces (e.g. native-activity's ABGR red)
+        // because the in-memory comparator sees zeros while the on-disk PNG looks
+        // correct. Force-copy to an in-software ARGB_8888 bitmap so getPixels is
+        // reliable for both the comparison and the saved actual.png.
+        val actual = if (cropped.config == Bitmap.Config.HARDWARE) {
+            val sw = cropped.copy(Bitmap.Config.ARGB_8888, false)
+            cropped.recycle()
+            sw
+        } else {
+            cropped
+        }
+        Log.i(TAG, "actual config=${actual.config} hasAlpha=${actual.hasAlpha()} premul=${actual.isPremultiplied}")
+        // endregion
 
         // Check if we're in update-references mode
         val args = InstrumentationRegistry.getArguments()
