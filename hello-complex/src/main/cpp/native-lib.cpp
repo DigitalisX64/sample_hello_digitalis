@@ -1120,6 +1120,83 @@ bool probe_fneg_4h_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// Vector FP16 FRINT* (.8H) — F16C round-trip JIT path with ROUNDPS imm
+// (handoff-86).  Each probe rounds an 8-lane FP16 input via one of the
+// six FRINT mnemonics and verifies bit-exact agreement with the
+// host-computed FP32 reference (FP16 quantized).  Per the handoff-82
+// standing rule, F16C round-trip is exact for FP16 unary FRINT*.
+#define PROBE_VEC_FRINT_8H(NAME, MNEMONIC, W0, W1, W2, W3, W4, W5, W6, W7) \
+  bool probe_##NAME##_8h(std::string& report, char (&buf)[256]) {            \
+    alignas(16) uint16_t n[8] = {                                            \
+        SingleToHalf(1.5f),  SingleToHalf(-1.5f), SingleToHalf(0.4f),        \
+        SingleToHalf(-2.5f), SingleToHalf(2.6f),  SingleToHalf(-1.6f),       \
+        SingleToHalf(3.7f),  SingleToHalf(-3.7f),                            \
+    };                                                                       \
+    alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,           \
+                                    0xdead, 0xbeef, 0xcafe, 0xf00d};         \
+    asm volatile(                                                            \
+        "ldr q1, [%[pa]]\n\t"                                                \
+        MNEMONIC " v0.8h, v1.8h\n\t"                                         \
+        "str q0, [%[pr]]\n\t"                                                \
+        :                                                                    \
+        : [pa] "r"(n), [pr] "r"(out)                                         \
+        : "v0", "v1", "memory");                                             \
+    const uint16_t want[8] = {                                               \
+        SingleToHalf(W0), SingleToHalf(W1), SingleToHalf(W2), SingleToHalf(W3), \
+        SingleToHalf(W4), SingleToHalf(W5), SingleToHalf(W6), SingleToHalf(W7), \
+    };                                                                       \
+    bool ok = true;                                                          \
+    for (int i = 0; i < 8; i++) {                                            \
+      if (!approx_half(out[i], want[i])) ok = false;                         \
+    }                                                                        \
+    snprintf(buf, sizeof(buf),                                               \
+             "  " #NAME " .8H out=[%04x %04x %04x %04x %04x %04x %04x %04x]: %s\n", \
+             out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7], \
+             ok ? "OK" : "FAIL");                                            \
+    report += buf;                                                           \
+    return ok;                                                               \
+  }
+
+PROBE_VEC_FRINT_8H(frintn, "frintn",  2.0f, -2.0f, 0.0f, -2.0f, 3.0f, -2.0f, 4.0f, -4.0f)
+PROBE_VEC_FRINT_8H(frintm, "frintm",  1.0f, -2.0f, 0.0f, -3.0f, 2.0f, -2.0f, 3.0f, -4.0f)
+PROBE_VEC_FRINT_8H(frintp, "frintp",  2.0f, -1.0f, 1.0f, -2.0f, 3.0f, -1.0f, 4.0f, -3.0f)
+PROBE_VEC_FRINT_8H(frintz, "frintz",  1.0f, -1.0f, 0.0f, -2.0f, 2.0f, -1.0f, 3.0f, -3.0f)
+PROBE_VEC_FRINT_8H(frintx, "frintx",  2.0f, -2.0f, 0.0f, -2.0f, 3.0f, -2.0f, 4.0f, -4.0f)
+PROBE_VEC_FRINT_8H(frinti, "frinti",  2.0f, -2.0f, 0.0f, -2.0f, 3.0f, -2.0f, 4.0f, -4.0f)
+
+#undef PROBE_VEC_FRINT_8H
+
+// Vector FP16 FRINTN (.4H, Q=0) — single .4H probe confirms the mask_low64
+// upper-zero clear on the F16C round-trip JIT path.  Same code path serves
+// all six FRINT* mnemonics; one probe is sufficient.
+bool probe_frintn_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  alignas(16) uint16_t n[8] = {
+      SingleToHalf(1.5f), SingleToHalf(-2.5f),
+      SingleToHalf(0.4f), SingleToHalf(-1.6f),
+      0xdead, 0xbeef, 0xcafe, 0xf00d,
+  };
+  alignas(16) uint16_t out[8] = {0xdead, 0xbeef, 0xcafe, 0xf00d,
+                                  0xdead, 0xbeef, 0xcafe, 0xf00d};
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "frintn v0.4h, v1.4h\n\t"
+      "str q0, [%[pr]]\n\t"
+      :
+      : [pa] "r"(n), [pr] "r"(out)
+      : "v0", "v1", "memory");
+  const uint16_t want_lo[4] = {SingleToHalf(2.0f), SingleToHalf(-2.0f),
+                               SingleToHalf(0.0f), SingleToHalf(-2.0f)};
+  bool ok = approx_half(out[0], want_lo[0]) && approx_half(out[1], want_lo[1]) &&
+            approx_half(out[2], want_lo[2]) && approx_half(out[3], want_lo[3]) &&
+            out[4] == 0 && out[5] == 0 && out[6] == 0 && out[7] == 0;
+  snprintf(buf, sizeof(buf),
+           "  frintn .4H lo=[%04x %04x %04x %04x] hi=[%04x %04x %04x %04x]: %s\n",
+           out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7],
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 // Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
 bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
   alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
@@ -1278,6 +1355,14 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fabs_4h_zero_upper(report, buf));
   run(probe_fneg_8h(report, buf));
   run(probe_fneg_4h_zero_upper(report, buf));
+  // FP16 vector FRINT* (F16C round-trip + ROUNDPS imm JIT path; handoff-86).
+  run(probe_frintn_8h(report, buf));
+  run(probe_frintm_8h(report, buf));
+  run(probe_frintp_8h(report, buf));
+  run(probe_frintz_8h(report, buf));
+  run(probe_frintx_8h(report, buf));
+  run(probe_frinti_8h(report, buf));
+  run(probe_frintn_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
