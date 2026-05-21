@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
 
 #define LOG_TAG "hellocomplex"
@@ -1476,6 +1477,132 @@ bool probe_fabd_4h_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
+// FP16 vector FP compares: FCMEQ, FCMGE, FCMGT, FACGE, FACGT (.8H form).
+// Lowering: widen to FP32 via Vcvtph2ps, run an SSE legacy ordered compare
+// (Cmpeqps / Cmpleps swapped / Cmpltps swapped), then PACKSSDW pack the
+// 32-bit lane mask down to 16-bit lanes (saturated -1 -> 0xFFFF, 0 -> 0).
+// Result lanes are 0xFFFF on TRUE, 0x0000 on FALSE (incl. unordered).
+//
+// Inputs chosen to cover every interesting predicate:
+//   lane 0: 1.0 vs 1.0     -> eq:T  ge:T  gt:F  acge:T  acgt:F
+//   lane 1: 2.0 vs 1.0     -> eq:F  ge:T  gt:T  acge:T  acgt:T
+//   lane 2: -1.0 vs 1.0    -> eq:F  ge:F  gt:F  acge:T  acgt:F
+//   lane 3: 1.0 vs -2.0    -> eq:F  ge:T  gt:T  acge:F  acgt:F
+//   lane 4: NaN vs 1.0     -> all FALSE (unordered)
+//   lane 5: 1.0 vs NaN     -> all FALSE (unordered)
+//   lane 6:  0.0 vs -0.0   -> eq:T  ge:T  gt:F  acge:T  acgt:F
+//   lane 7:  inf vs inf    -> eq:T  ge:T  gt:F  acge:T  acgt:F
+bool probe_fp16_cmp_8h(std::string& report, char (&buf)[256]) {
+  const float nan_f = std::nanf("");
+  const float inf_f = std::numeric_limits<float>::infinity();
+  const float n_f[8] = { 1.0f,  2.0f, -1.0f,  1.0f, nan_f, 1.0f,  0.0f, inf_f};
+  const float m_f[8] = { 1.0f,  1.0f,  1.0f, -2.0f, 1.0f, nan_f, -0.0f, inf_f};
+  alignas(16) uint16_t n[8], m[8];
+  for (int i = 0; i < 8; i++) {
+    n[i] = SingleToHalf(n_f[i]);
+    m[i] = SingleToHalf(m_f[i]);
+  }
+  auto mask16 = [](bool t) -> uint16_t { return t ? uint16_t{0xFFFF} : uint16_t{0}; };
+  uint16_t want_eq[8], want_ge[8], want_gt[8], want_acge[8], want_acgt[8];
+  for (int i = 0; i < 8; i++) {
+    bool unord = std::isnan(n_f[i]) || std::isnan(m_f[i]);
+    want_eq[i]  = mask16(!unord && n_f[i] == m_f[i]);
+    want_ge[i]  = mask16(!unord && n_f[i] >= m_f[i]);
+    want_gt[i]  = mask16(!unord && n_f[i] >  m_f[i]);
+    want_acge[i] = mask16(!unord && std::fabs(n_f[i]) >= std::fabs(m_f[i]));
+    want_acgt[i] = mask16(!unord && std::fabs(n_f[i]) >  std::fabs(m_f[i]));
+  }
+  alignas(16) uint16_t eq_out[8], ge_out[8], gt_out[8], acge_out[8], acgt_out[8];
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "ldr q2, [%[pb]]\n\t"
+      "fcmeq v0.8h, v1.8h, v2.8h\n\t"
+      "str q0, [%[req]]\n\t"
+      "fcmge v0.8h, v1.8h, v2.8h\n\t"
+      "str q0, [%[rge]]\n\t"
+      "fcmgt v0.8h, v1.8h, v2.8h\n\t"
+      "str q0, [%[rgt]]\n\t"
+      "facge v0.8h, v1.8h, v2.8h\n\t"
+      "str q0, [%[racge]]\n\t"
+      "facgt v0.8h, v1.8h, v2.8h\n\t"
+      "str q0, [%[racgt]]\n\t"
+      :
+      : [pa] "r"(n), [pb] "r"(m),
+        [req] "r"(eq_out), [rge] "r"(ge_out), [rgt] "r"(gt_out),
+        [racge] "r"(acge_out), [racgt] "r"(acgt_out)
+      : "v0", "v1", "v2", "memory");
+  bool ok = true;
+  for (int i = 0; i < 8; i++) {
+    if (eq_out[i]  != want_eq[i])  ok = false;
+    if (ge_out[i]  != want_ge[i])  ok = false;
+    if (gt_out[i]  != want_gt[i])  ok = false;
+    if (acge_out[i] != want_acge[i]) ok = false;
+    if (acgt_out[i] != want_acgt[i]) ok = false;
+  }
+  snprintf(buf, sizeof(buf),
+           "  fcm{eq,ge,gt} + fac{ge,gt} .8H: %s\n",
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
+// .4H Q=0 upper-zero check on each compare variant.
+bool probe_fp16_cmp_4h_zero_upper(std::string& report, char (&buf)[256]) {
+  // Low 4 lanes: same first four lanes as the .8H probe. Upper 4 lanes: bogus
+  // sentinels (must not leak into the output).
+  const float n_f[4] = { 1.0f,  2.0f, -1.0f,  1.0f};
+  const float m_f[4] = { 1.0f,  1.0f,  1.0f, -2.0f};
+  alignas(16) uint16_t n[8] = {0,0,0,0, 0xdead, 0xbeef, 0xcafe, 0xf00d};
+  alignas(16) uint16_t m[8] = {0,0,0,0, 0x1234, 0x5678, 0x9abc, 0xdef0};
+  for (int i = 0; i < 4; i++) {
+    n[i] = SingleToHalf(n_f[i]);
+    m[i] = SingleToHalf(m_f[i]);
+  }
+  auto mask16 = [](bool t) -> uint16_t { return t ? uint16_t{0xFFFF} : uint16_t{0}; };
+  uint16_t want_eq[4]  = {mask16(true),  mask16(false), mask16(false), mask16(false)};
+  uint16_t want_ge[4]  = {mask16(true),  mask16(true),  mask16(false), mask16(true)};
+  uint16_t want_gt[4]  = {mask16(false), mask16(true),  mask16(false), mask16(true)};
+  uint16_t want_acge[4] = {mask16(true),  mask16(true), mask16(true),  mask16(false)};
+  uint16_t want_acgt[4] = {mask16(false), mask16(true), mask16(false), mask16(false)};
+  alignas(16) uint16_t eq_out[8], ge_out[8], gt_out[8], acge_out[8], acgt_out[8];
+  for (int i = 0; i < 8; i++) {
+    eq_out[i] = ge_out[i] = gt_out[i] = acge_out[i] = acgt_out[i] = 0xa5a5;
+  }
+  asm volatile(
+      "ldr q1, [%[pa]]\n\t"
+      "ldr q2, [%[pb]]\n\t"
+      "fcmeq v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[req]]\n\t"
+      "fcmge v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[rge]]\n\t"
+      "fcmgt v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[rgt]]\n\t"
+      "facge v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[racge]]\n\t"
+      "facgt v0.4h, v1.4h, v2.4h\n\t"
+      "str q0, [%[racgt]]\n\t"
+      :
+      : [pa] "r"(n), [pb] "r"(m),
+        [req] "r"(eq_out), [rge] "r"(ge_out), [rgt] "r"(gt_out),
+        [racge] "r"(acge_out), [racgt] "r"(acgt_out)
+      : "v0", "v1", "v2", "memory");
+  bool ok = true;
+  auto check = [&](const uint16_t* out, const uint16_t* want) {
+    for (int i = 0; i < 4; i++) if (out[i] != want[i]) ok = false;
+    for (int i = 4; i < 8; i++) if (out[i] != 0) ok = false;
+  };
+  check(eq_out,  want_eq);
+  check(ge_out,  want_ge);
+  check(gt_out,  want_gt);
+  check(acge_out, want_acge);
+  check(acgt_out, want_acgt);
+  snprintf(buf, sizeof(buf),
+           "  fcm{eq,ge,gt} + fac{ge,gt} .4H upper-zero: %s\n",
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+
 // Q=0 .2S FSQRT: lanes 0/1 carry roots, lanes 2/3 must be zero on write.
 bool probe_fsqrt_2s_zero_upper(std::string& report, char (&buf)[256]) {
   alignas(16) float in_buf[4]  = {4.0f, 9.0f, 16.0f, 25.0f};
@@ -1660,6 +1787,9 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   // FP16 vector FABD (F16C round-trip + FP32 sign-clear JIT path).
   run(probe_fabd_8h(report, buf));
   run(probe_fabd_4h_zero_upper(report, buf));
+  // FP16 vector compares: FCMEQ/FCMGE/FCMGT/FACGE/FACGT (F16C + PACKSSDW).
+  run(probe_fp16_cmp_8h(report, buf));
+  run(probe_fp16_cmp_4h_zero_upper(report, buf));
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
