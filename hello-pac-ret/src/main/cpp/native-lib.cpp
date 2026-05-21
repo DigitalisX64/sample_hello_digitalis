@@ -251,8 +251,8 @@ inline bool probe_pac_ret_prologue_epilogue() {
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_example_hellopacret_MainActivity_probePacRet(JNIEnv* env,
-                                                      jobject /*this*/) {
+Java_com_example_hellopacret_MainActivity_probe(JNIEnv* env,
+                                                jobject /*this*/) {
   std::string report = "Armv8.3-PAuth (PAC) probe:\n";
   char buf[128];
 
