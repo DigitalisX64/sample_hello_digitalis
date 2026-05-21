@@ -154,6 +154,56 @@ FP16_OP_2SRC(fmaxnm)
 FP16_OP_2SRC(fminnm)
 FP16_OP_2SRC(fnmul)
 
+// Scalar FP32 / FP64 two-source probes for the FpDataProc2 ftype=00 (S) and
+// ftype=01 (D) JIT paths.  Plan §D1 / §M1: exercise the same five
+// opcodes — FMAX / FMIN / FMAXNM / FMINNM / FNMUL — that the FP16 macro
+// above covers, but at single- and double-precision so the JIT lane-0
+// emit sequences are sample-tested.  llvm-mc-verified encodings:
+//   0x1e224820 fmax  s0, s1, s2     0x1e624820 fmax  d0, d1, d2
+//   0x1e225820 fmin  s0, s1, s2     0x1e625820 fmin  d0, d1, d2
+//   0x1e226820 fmaxnm s0, s1, s2    0x1e626820 fmaxnm d0, d1, d2
+//   0x1e227820 fminnm s0, s1, s2    0x1e627820 fminnm d0, d1, d2
+//   0x1e228820 fnmul s0, s1, s2     0x1e628820 fnmul d0, d1, d2
+#define FP32_OP_2SRC(MNEMONIC)                                                 \
+  float fp32_##MNEMONIC(float a, float b) {                                    \
+    float r;                                                                   \
+    asm volatile(                                                              \
+        "ldr s1, [%[pa]]\n\t"                                                  \
+        "ldr s2, [%[pb]]\n\t"                                                  \
+        #MNEMONIC " s0, s1, s2\n\t"                                            \
+        "str s0, [%[pr]]\n\t"                                                  \
+        :                                                                      \
+        : [pa] "r"(&a), [pb] "r"(&b), [pr] "r"(&r)                             \
+        : "v0", "v1", "v2", "memory");                                         \
+    return r;                                                                  \
+  }
+
+FP32_OP_2SRC(fmax)
+FP32_OP_2SRC(fmin)
+FP32_OP_2SRC(fmaxnm)
+FP32_OP_2SRC(fminnm)
+FP32_OP_2SRC(fnmul)
+
+#define FP64_OP_2SRC(MNEMONIC)                                                 \
+  double fp64_##MNEMONIC(double a, double b) {                                 \
+    double r;                                                                  \
+    asm volatile(                                                              \
+        "ldr d1, [%[pa]]\n\t"                                                  \
+        "ldr d2, [%[pb]]\n\t"                                                  \
+        #MNEMONIC " d0, d1, d2\n\t"                                            \
+        "str d0, [%[pr]]\n\t"                                                  \
+        :                                                                      \
+        : [pa] "r"(&a), [pb] "r"(&b), [pr] "r"(&r)                             \
+        : "v0", "v1", "v2", "memory");                                         \
+    return r;                                                                  \
+  }
+
+FP64_OP_2SRC(fmax)
+FP64_OP_2SRC(fmin)
+FP64_OP_2SRC(fmaxnm)
+FP64_OP_2SRC(fminnm)
+FP64_OP_2SRC(fnmul)
+
 #define FP16_OP_3SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a, uint16_t b, uint16_t c) {               \
     uint16_t r;                                                                \
@@ -752,6 +802,33 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     std::memcpy(&bits, &d, 8);
     return bits;
   };
+
+  // Scalar FP32 (S) and FP64 (D) FpDataProc2 probes — the same five opcodes
+  // probed for FP16 above (FMAX / FMIN / FMAXNM / FMINNM / FNMUL), exercising
+  // the JIT ftype=00 and ftype=01 lane-0 emit sequences added in handoff-92.
+  // Inputs are finite (no NaN), so std::fmax/std::fmin match both ARM FMAX
+  // (NaN-prop) and ARM FMAXNM (NaN-suppress) semantics bit-exactly.
+  total++; if (check(report, buf, "FMAX.s",   u32_of_float(fp32_fmax  ( 1.5f, 3.5f)),
+                     u32_of_float(std::fmax( 1.5f, 3.5f)))) ok++;
+  total++; if (check(report, buf, "FMIN.s",   u32_of_float(fp32_fmin  ( 1.5f, 3.5f)),
+                     u32_of_float(std::fmin( 1.5f, 3.5f)))) ok++;
+  total++; if (check(report, buf, "FMAXNM.s", u32_of_float(fp32_fmaxnm(-1.5f, 3.5f)),
+                     u32_of_float(std::fmax(-1.5f, 3.5f)))) ok++;
+  total++; if (check(report, buf, "FMINNM.s", u32_of_float(fp32_fminnm(-1.5f, 3.5f)),
+                     u32_of_float(std::fmin(-1.5f, 3.5f)))) ok++;
+  total++; if (check(report, buf, "FNMUL.s",  u32_of_float(fp32_fnmul ( 1.5f, 3.5f)),
+                     u32_of_float(-(1.5f * 3.5f)))) ok++;
+
+  total++; if (check(report, buf, "FMAX.d",   u64_of_double(fp64_fmax  ( 1.5, 3.5)),
+                     u64_of_double(std::fmax( 1.5, 3.5)))) ok++;
+  total++; if (check(report, buf, "FMIN.d",   u64_of_double(fp64_fmin  ( 1.5, 3.5)),
+                     u64_of_double(std::fmin( 1.5, 3.5)))) ok++;
+  total++; if (check(report, buf, "FMAXNM.d", u64_of_double(fp64_fmaxnm(-1.5, 3.5)),
+                     u64_of_double(std::fmax(-1.5, 3.5)))) ok++;
+  total++; if (check(report, buf, "FMINNM.d", u64_of_double(fp64_fminnm(-1.5, 3.5)),
+                     u64_of_double(std::fmin(-1.5, 3.5)))) ok++;
+  total++; if (check(report, buf, "FNMUL.d",  u64_of_double(fp64_fnmul ( 1.5, 3.5)),
+                     u64_of_double(-(1.5 * 3.5)))) ok++;
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
   total++; if (check(report, buf, "FCVT S<-H 1.5",
