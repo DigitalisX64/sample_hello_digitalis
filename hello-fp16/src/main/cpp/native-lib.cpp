@@ -533,9 +533,11 @@ uint64_t fp_fcvtzu_x_d(uint64_t a) {
 FCVTS_ASM_OPS(fcvtns, fcvtns)
 FCVTS_ASM_OPS(fcvtps, fcvtps)
 FCVTS_ASM_OPS(fcvtms, fcvtms)
+FCVTS_ASM_OPS(fcvtas, fcvtas)
 FCVTU_ASM_OPS(fcvtnu, fcvtnu)
 FCVTU_ASM_OPS(fcvtpu, fcvtpu)
 FCVTU_ASM_OPS(fcvtmu, fcvtmu)
+FCVTU_ASM_OPS(fcvtau, fcvtau)
 
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
@@ -1637,6 +1639,47 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
                        u64(fp_fcvtmu_x_s(0x7F800000u)), u64(UINT64_MAX))) ok++;
     total++; if (check(report, buf, "FCVTMU X<-D -1.5",
                        u64(fp_fcvtmu_x_d(u64_of_double(-1.5))), u64(0ULL))) ok++;
+
+    // ---- FCVTAS (round-to-nearest, ties-AWAY-from-zero) ----
+    // 2.5 distinguishes ties-away (FCVTAS -> 3) from RNE (FCVTNS -> 2).
+    total++; if (check(report, buf, "FCVTAS W<-S 1.5",
+                       u32(fp_fcvtas_w_s(u32_of_float(1.5f))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S 2.5",
+                       u32(fp_fcvtas_w_s(u32_of_float(2.5f))), u32(3))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S -2.5",
+                       u32(fp_fcvtas_w_s(u32_of_float(-2.5f))), u32(-3))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S 0.4",
+                       u32(fp_fcvtas_w_s(u32_of_float(0.4f))), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S 0.6",
+                       u32(fp_fcvtas_w_s(u32_of_float(0.6f))), u32(1))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S NaN",
+                       u32(fp_fcvtas_w_s(0x7FC00000u)), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTAS W<-S +Inf",
+                       u32(fp_fcvtas_w_s(0x7F800000u)), u32(INT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTAS X<-D 0.5",
+                       u64(fp_fcvtas_x_d(u64_of_double(0.5))), u64(1LL))) ok++;
+    total++; if (check(report, buf, "FCVTAS X<-D -Inf",
+                       u64(fp_fcvtas_x_d(0xFFF0000000000000ULL)), u64(INT64_MIN))) ok++;
+    // Magnitude-gate load-bearing case: odd FP32 integer at 2^23+1 must
+    // round-trip exactly (would mis-round to 2^23+2 without the gate).
+    total++; if (check(report, buf, "FCVTAS W<-S 2^23+1",
+                       u32(fp_fcvtas_w_s(0x4B000001u)), u32(8388609))) ok++;
+
+    // ---- FCVTAU (unsigned, ties-AWAY-from-zero) ----
+    total++; if (check(report, buf, "FCVTAU W<-S 0.5",
+                       u32(fp_fcvtau_w_s(u32_of_float(0.5f))), u32(1U))) ok++;
+    total++; if (check(report, buf, "FCVTAU W<-S -0.5",
+                       u32(fp_fcvtau_w_s(u32_of_float(-0.5f))), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTAU W<-D 2.5",
+                       u32(fp_fcvtau_w_d(u64_of_double(2.5))), u32(3U))) ok++;
+    total++; if (check(report, buf, "FCVTAU W<-D NaN",
+                       u32(fp_fcvtau_w_d(0x7FF8000000000000ULL)), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTAU W<-D +Inf",
+                       u32(fp_fcvtau_w_d(0x7FF0000000000000ULL)), u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTAU X<-S +Inf",
+                       u64(fp_fcvtau_x_s(0x7F800000u)), u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTAU X<-D +Inf",
+                       u64(fp_fcvtau_x_d(0x7FF0000000000000ULL)), u64(UINT64_MAX))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
