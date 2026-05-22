@@ -472,6 +472,71 @@ uint64_t fp_fcvtzu_x_d(uint64_t a) {
   return r;
 }
 
+// FCVT{N,P,M}S scalar (FP -> signed int, rounding mode in rmode bits).  ARM
+// semantics: NaN -> 0; positive overflow -> INT_MAX; negative overflow ->
+// INT_MIN; in range -> rounded value.  Rounding mode encodings (rmode):
+//   00 = FCVTN{S,U}: round-to-nearest, ties-to-even
+//   01 = FCVTP{S,U}: round toward +inf (ceiling)
+//   10 = FCVTM{S,U}: round toward -inf (floor)
+#define FCVTS_ASM_OPS(NAME, MNEMONIC)                                          \
+  int32_t fp_##NAME##_w_s(uint32_t a) {                                        \
+    int32_t r;                                                                 \
+    asm volatile("ldr s0, [%[pa]]\n\t" #MNEMONIC " %w[r], s0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  int32_t fp_##NAME##_w_d(uint64_t a) {                                        \
+    int32_t r;                                                                 \
+    asm volatile("ldr d0, [%[pa]]\n\t" #MNEMONIC " %w[r], d0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  int64_t fp_##NAME##_x_s(uint32_t a) {                                        \
+    int64_t r;                                                                 \
+    asm volatile("ldr s0, [%[pa]]\n\t" #MNEMONIC " %x[r], s0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  int64_t fp_##NAME##_x_d(uint64_t a) {                                        \
+    int64_t r;                                                                 \
+    asm volatile("ldr d0, [%[pa]]\n\t" #MNEMONIC " %x[r], d0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }
+
+#define FCVTU_ASM_OPS(NAME, MNEMONIC)                                          \
+  uint32_t fp_##NAME##_w_s(uint32_t a) {                                       \
+    uint32_t r;                                                                \
+    asm volatile("ldr s0, [%[pa]]\n\t" #MNEMONIC " %w[r], s0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  uint32_t fp_##NAME##_w_d(uint64_t a) {                                       \
+    uint32_t r;                                                                \
+    asm volatile("ldr d0, [%[pa]]\n\t" #MNEMONIC " %w[r], d0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  uint64_t fp_##NAME##_x_s(uint32_t a) {                                       \
+    uint64_t r;                                                                \
+    asm volatile("ldr s0, [%[pa]]\n\t" #MNEMONIC " %x[r], s0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }                                                                            \
+  uint64_t fp_##NAME##_x_d(uint64_t a) {                                       \
+    uint64_t r;                                                                \
+    asm volatile("ldr d0, [%[pa]]\n\t" #MNEMONIC " %x[r], d0\n\t"              \
+                 : [r] "=r"(r) : [pa] "r"(&a) : "v0", "memory");               \
+    return r;                                                                  \
+  }
+
+FCVTS_ASM_OPS(fcvtns, fcvtns)
+FCVTS_ASM_OPS(fcvtps, fcvtps)
+FCVTS_ASM_OPS(fcvtms, fcvtms)
+FCVTU_ASM_OPS(fcvtnu, fcvtnu)
+FCVTU_ASM_OPS(fcvtpu, fcvtpu)
+FCVTU_ASM_OPS(fcvtmu, fcvtmu)
+
 #define FP16_OP_1SRC(MNEMONIC)                                                 \
   uint16_t fp16_##MNEMONIC(uint16_t a) {                                       \
     uint16_t r;                                                                \
@@ -1434,6 +1499,144 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     total++; if (check(report, buf, "FCVTZU X<-D -1e20",
                        u64(fp_fcvtzu_x_d(u64_of_double(-1e20))),
                        u64(0ULL))) ok++;
+  }
+
+  // ===== FCVTNS/PS/MS scalar (FP -> signed int, ROUNDSS-based rounding) =====
+  //
+  // Rounding modes:
+  //   FCVTNS: round-to-nearest, ties-to-even (RNE).      half toward even.
+  //   FCVTPS: round toward +inf (ceiling).               -0.4 -> 0,  +0.4 -> 1
+  //   FCVTMS: round toward -inf (floor).                 -0.4 -> -1, +0.4 -> 0
+  // Saturation matches FCVTZS (NaN -> 0; +overflow -> INT_MAX; -overflow ->
+  // INT_MIN).
+  {
+    auto u32 = [](int32_t v) { return static_cast<uint32_t>(v); };
+    auto u64 = [](int64_t v) { return static_cast<uint64_t>(v); };
+
+    // ---- FCVTNS (RNE) ----
+    total++; if (check(report, buf, "FCVTNS W<-S 1.5",
+                       u32(fp_fcvtns_w_s(u32_of_float(1.5f))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-S 2.5",
+                       u32(fp_fcvtns_w_s(u32_of_float(2.5f))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-S -1.5",
+                       u32(fp_fcvtns_w_s(u32_of_float(-1.5f))), u32(-2))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-S NaN",
+                       u32(fp_fcvtns_w_s(0x7FC00000u)), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-S +Inf",
+                       u32(fp_fcvtns_w_s(0x7F800000u)), u32(INT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-S -Inf",
+                       u32(fp_fcvtns_w_s(0xFF800000u)), u32(INT32_MIN))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-D 0.5",
+                       u32(fp_fcvtns_w_d(u64_of_double(0.5))), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTNS W<-D 1.5",
+                       u32(fp_fcvtns_w_d(u64_of_double(1.5))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTNS X<-S 1.5",
+                       u64(fp_fcvtns_x_s(u32_of_float(1.5f))), u64(2))) ok++;
+    total++; if (check(report, buf, "FCVTNS X<-S -2.5",
+                       u64(fp_fcvtns_x_s(u32_of_float(-2.5f))), u64(-2))) ok++;
+    total++; if (check(report, buf, "FCVTNS X<-D 3.5",
+                       u64(fp_fcvtns_x_d(u64_of_double(3.5))), u64(4))) ok++;
+    total++; if (check(report, buf, "FCVTNS X<-D NaN",
+                       u64(fp_fcvtns_x_d(0x7FF8000000000000ULL)), u64(0))) ok++;
+
+    // ---- FCVTPS (ceiling) ----
+    total++; if (check(report, buf, "FCVTPS W<-S 1.2",
+                       u32(fp_fcvtps_w_s(u32_of_float(1.2f))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTPS W<-S -1.2",
+                       u32(fp_fcvtps_w_s(u32_of_float(-1.2f))), u32(-1))) ok++;
+    total++; if (check(report, buf, "FCVTPS W<-S -0.4",
+                       u32(fp_fcvtps_w_s(u32_of_float(-0.4f))), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTPS W<-S NaN",
+                       u32(fp_fcvtps_w_s(0x7FC00000u)), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTPS W<-D 2.1",
+                       u32(fp_fcvtps_w_d(u64_of_double(2.1))), u32(3))) ok++;
+    total++; if (check(report, buf, "FCVTPS W<-D -2.9",
+                       u32(fp_fcvtps_w_d(u64_of_double(-2.9))), u32(-2))) ok++;
+    total++; if (check(report, buf, "FCVTPS X<-S 1.2",
+                       u64(fp_fcvtps_x_s(u32_of_float(1.2f))), u64(2))) ok++;
+    total++; if (check(report, buf, "FCVTPS X<-D -0.4",
+                       u64(fp_fcvtps_x_d(u64_of_double(-0.4))), u64(0))) ok++;
+    total++; if (check(report, buf, "FCVTPS X<-D +Inf",
+                       u64(fp_fcvtps_x_d(0x7FF0000000000000ULL)),
+                       u64(INT64_MAX))) ok++;
+
+    // ---- FCVTMS (floor) ----
+    total++; if (check(report, buf, "FCVTMS W<-S 1.7",
+                       u32(fp_fcvtms_w_s(u32_of_float(1.7f))), u32(1))) ok++;
+    total++; if (check(report, buf, "FCVTMS W<-S -1.2",
+                       u32(fp_fcvtms_w_s(u32_of_float(-1.2f))), u32(-2))) ok++;
+    total++; if (check(report, buf, "FCVTMS W<-S +0.4",
+                       u32(fp_fcvtms_w_s(u32_of_float(0.4f))), u32(0))) ok++;
+    total++; if (check(report, buf, "FCVTMS W<-S -0.4",
+                       u32(fp_fcvtms_w_s(u32_of_float(-0.4f))), u32(-1))) ok++;
+    total++; if (check(report, buf, "FCVTMS W<-D 2.9",
+                       u32(fp_fcvtms_w_d(u64_of_double(2.9))), u32(2))) ok++;
+    total++; if (check(report, buf, "FCVTMS W<-D -2.1",
+                       u32(fp_fcvtms_w_d(u64_of_double(-2.1))), u32(-3))) ok++;
+    total++; if (check(report, buf, "FCVTMS X<-S NaN",
+                       u64(fp_fcvtms_x_s(0x7FC00000u)), u64(0))) ok++;
+    total++; if (check(report, buf, "FCVTMS X<-D -Inf",
+                       u64(fp_fcvtms_x_d(0xFFF0000000000000ULL)),
+                       u64(INT64_MIN))) ok++;
+  }
+
+  // ===== FCVTNU/PU/MU scalar (FP -> unsigned int, ROUNDSS-based rounding) ====
+  //
+  // ARM unsigned saturation: NaN -> 0; FP < 0 -> 0 (any direction); FP >
+  // UINT_MAX -> UINT_MAX; in range -> rounded value.
+  {
+    auto u32 = [](uint32_t v) { return v; };
+    auto u64 = [](uint64_t v) { return v; };
+
+    // ---- FCVTNU (RNE) ----
+    total++; if (check(report, buf, "FCVTNU W<-S 1.5",
+                       u32(fp_fcvtnu_w_s(u32_of_float(1.5f))), u32(2U))) ok++;
+    total++; if (check(report, buf, "FCVTNU W<-S 2.5",
+                       u32(fp_fcvtnu_w_s(u32_of_float(2.5f))), u32(2U))) ok++;
+    total++; if (check(report, buf, "FCVTNU W<-S -1.5",
+                       u32(fp_fcvtnu_w_s(u32_of_float(-1.5f))), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTNU W<-S NaN",
+                       u32(fp_fcvtnu_w_s(0x7FC00000u)), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTNU W<-D +Inf",
+                       u32(fp_fcvtnu_w_d(0x7FF0000000000000ULL)),
+                       u32(UINT32_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTNU X<-S 1.5",
+                       u64(fp_fcvtnu_x_s(u32_of_float(1.5f))), u64(2ULL))) ok++;
+    total++; if (check(report, buf, "FCVTNU X<-D +Inf",
+                       u64(fp_fcvtnu_x_d(0x7FF0000000000000ULL)),
+                       u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTNU X<-D -1.5",
+                       u64(fp_fcvtnu_x_d(u64_of_double(-1.5))), u64(0ULL))) ok++;
+
+    // ---- FCVTPU (ceiling) ----
+    total++; if (check(report, buf, "FCVTPU W<-S 1.2",
+                       u32(fp_fcvtpu_w_s(u32_of_float(1.2f))), u32(2U))) ok++;
+    total++; if (check(report, buf, "FCVTPU W<-S -1.2",
+                       u32(fp_fcvtpu_w_s(u32_of_float(-1.2f))), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTPU W<-S +0.4",
+                       u32(fp_fcvtpu_w_s(u32_of_float(0.4f))), u32(1U))) ok++;
+    total++; if (check(report, buf, "FCVTPU W<-D 2.1",
+                       u32(fp_fcvtpu_w_d(u64_of_double(2.1))), u32(3U))) ok++;
+    total++; if (check(report, buf, "FCVTPU X<-S +Inf",
+                       u64(fp_fcvtpu_x_s(0x7F800000u)), u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTPU X<-D -0.4",
+                       u64(fp_fcvtpu_x_d(u64_of_double(-0.4))), u64(0ULL))) ok++;
+
+    // ---- FCVTMU (floor) ----
+    total++; if (check(report, buf, "FCVTMU W<-S 1.7",
+                       u32(fp_fcvtmu_w_s(u32_of_float(1.7f))), u32(1U))) ok++;
+    total++; if (check(report, buf, "FCVTMU W<-S +0.4",
+                       u32(fp_fcvtmu_w_s(u32_of_float(0.4f))), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTMU W<-S -0.4",
+                       u32(fp_fcvtmu_w_s(u32_of_float(-0.4f))), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTMU W<-D 2.9",
+                       u32(fp_fcvtmu_w_d(u64_of_double(2.9))), u32(2U))) ok++;
+    total++; if (check(report, buf, "FCVTMU W<-D NaN",
+                       u32(fp_fcvtmu_w_d(0x7FF8000000000000ULL)), u32(0U))) ok++;
+    total++; if (check(report, buf, "FCVTMU X<-S +Inf",
+                       u64(fp_fcvtmu_x_s(0x7F800000u)), u64(UINT64_MAX))) ok++;
+    total++; if (check(report, buf, "FCVTMU X<-D -1.5",
+                       u64(fp_fcvtmu_x_d(u64_of_double(-1.5))), u64(0ULL))) ok++;
   }
 
   // FCVT Sd, Hn (H->S).  HalfToSingle is exact (FP16 mantissa < FP32).
