@@ -53,6 +53,29 @@ bool approx_eq(double a, double b) {
   return d < 1e-8;
 }
 
+// Read/clear FPSR via direct MRS/MSR rather than libm's fetestexcept so the
+// probe doesn't depend on bionic libm's fenv being routed through guest code
+// (the libm proxy is outside the Digitalis modification surface). FPSR bit
+// positions per ARM ARM C5.2.8:
+//   [0] IOC (invalid)        [1] DZC (div-by-zero)
+//   [2] OFC (overflow)       [3] UFC (underflow)
+//   [4] IXC (inexact)        [7] IDC (input denormal)
+inline uint32_t read_fpsr() {
+  uint64_t fpsr;
+  __asm__ __volatile__("mrs %0, fpsr" : "=r"(fpsr));
+  return static_cast<uint32_t>(fpsr);
+}
+inline void clear_fpsr() {
+  uint64_t zero = 0;
+  __asm__ __volatile__("msr fpsr, %0" : : "r"(zero));
+}
+
+constexpr uint32_t kFpsrIOC = 1u << 0;  // invalid
+constexpr uint32_t kFpsrDZC = 1u << 1;  // div-by-zero
+constexpr uint32_t kFpsrOFC = 1u << 2;  // overflow
+constexpr uint32_t kFpsrUFC = 1u << 3;  // underflow
+constexpr uint32_t kFpsrIXC = 1u << 4;  // inexact
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -123,6 +146,131 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
              fmul_ok ? "OK" : "FAIL", fadd_ok ? "OK" : "FAIL",
              fsub_ok ? "OK" : "FAIL");
     report += buf;
+  }
+
+  // FPSR storage round-trip — confirms MSR/MRS path is wired up
+  // independent of whether any FP op actually raised an exception.
+  {
+    clear_fpsr();
+    uint64_t set = 0xFFu;
+    __asm__ __volatile__("msr fpsr, %0" : : "r"(set));
+    uint32_t got = read_fpsr();
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "  FPSR  storage round-trip MSR=0xFF MRS=0x%X (%s)\n",
+             got & 0xFFu, ((got & 0xFFu) == 0xFFu) ? "OK" : "FAIL");
+    report += buf;
+    clear_fpsr();
+  }
+
+  // FCVT-based interpreter-only probe — FCVT between precisions runs in
+  // the interpreter (JIT comment in FpDataProc1 says "different dst
+  // layouts"), so this verifies interpreter-side FP ops set FPSR.
+  {
+    auto fcvt_d2s = [](double a) -> float {
+      float r;
+      __asm__ __volatile__("fcvt %s0, %d1" : "=w"(r) : "w"(a));
+      return r;
+    };
+    volatile float vf;
+    clear_fpsr();
+    // 1.0e100 narrowed to float overflows: INEXACT + OVERFLOW.
+    vf = fcvt_d2s(1.0e100);
+    uint32_t fpsr = read_fpsr();
+    char buf[128];
+    snprintf(buf, sizeof(buf),
+             "  FPSR  fcvt(1e100->f) OFC=%s IXC=%s (interpreter path)\n",
+             (fpsr & kFpsrOFC) ? "OK" : "FAIL",
+             (fpsr & kFpsrIXC) ? "OK" : "FAIL");
+    report += buf;
+    (void)vf;
+    clear_fpsr();
+  }
+
+  // Scalar FP exception flag probe (Plan §L1). Each subprobe clears FPSR,
+  // runs a scalar FP op known to raise a specific exception, then reads
+  // FPSR via MRS and checks the expected sticky bit is set. The FP ops
+  // are emitted via inline asm so the C compiler can't constant-fold or
+  // auto-vectorise them away.
+  {
+    auto fdiv = [](float a, float b) -> float {
+      float r;
+      __asm__ __volatile__("fdiv %s0, %s1, %s2"
+                           : "=w"(r) : "w"(a), "w"(b));
+      return r;
+    };
+    auto fmul = [](float a, float b) -> float {
+      float r;
+      __asm__ __volatile__("fmul %s0, %s1, %s2"
+                           : "=w"(r) : "w"(a), "w"(b));
+      return r;
+    };
+    auto fsqrt_s = [](float a) -> float {
+      float r;
+      __asm__ __volatile__("fsqrt %s0, %s1" : "=w"(r) : "w"(a));
+      return r;
+    };
+    auto fsqrt_d = [](double a) -> double {
+      double r;
+      __asm__ __volatile__("fsqrt %d0, %d1" : "=w"(r) : "w"(a));
+      return r;
+    };
+    auto fadd = [](float a, float b) -> float {
+      float r;
+      __asm__ __volatile__("fadd %s0, %s1, %s2"
+                           : "=w"(r) : "w"(a), "w"(b));
+      return r;
+    };
+    volatile float vf;
+    volatile double vd;
+
+    // INEXACT from 1.0f / 3.0f (cannot be represented in binary32).
+    clear_fpsr();
+    vf = fdiv(1.0f, 3.0f);
+    uint32_t fpsr_inexact = read_fpsr();
+    bool ixc_ok = (fpsr_inexact & kFpsrIXC) != 0;
+
+    // INEXACT from sqrt(2.0) — irrational result, RNE rounds inexactly.
+    clear_fpsr();
+    vd = fsqrt_d(2.0);
+    uint32_t fpsr_sqrt = read_fpsr();
+    bool sqrt_ixc_ok = (fpsr_sqrt & kFpsrIXC) != 0;
+
+    // DIVIDE-BY-ZERO from 1.0f / 0.0f.
+    clear_fpsr();
+    vf = fdiv(1.0f, 0.0f);
+    uint32_t fpsr_dz = read_fpsr();
+    bool dzc_ok = (fpsr_dz & kFpsrDZC) != 0;
+
+    // OVERFLOW from FLT_MAX * 2.0f. Also raises INEXACT.
+    clear_fpsr();
+    vf = fmul(3.402823e38f, 2.0f);
+    uint32_t fpsr_ov = read_fpsr();
+    bool ofc_ok = (fpsr_ov & kFpsrOFC) != 0;
+
+    // INVALID from sqrt(-1.0f).
+    clear_fpsr();
+    vf = fsqrt_s(-1.0f);
+    uint32_t fpsr_inv = read_fpsr();
+    bool ioc_ok = (fpsr_inv & kFpsrIOC) != 0;
+
+    // FPSR persistence: a non-trapping exact op (1.0+1.0) must leave FPSR
+    // cumulative-exception bits clear.
+    clear_fpsr();
+    vf = fadd(1.0f, 1.0f);
+    uint32_t fpsr_exact = read_fpsr();
+    bool exact_clean = (fpsr_exact & (kFpsrIXC | kFpsrOFC | kFpsrUFC |
+                                      kFpsrDZC | kFpsrIOC)) == 0;
+
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+             "  FPSR  IXC(1/3)=%s  IXC(sqrt2)=%s  DZC=%s  OFC=%s  IOC=%s  "
+             "exact-clean=%s\n",
+             ixc_ok ? "OK" : "FAIL", sqrt_ixc_ok ? "OK" : "FAIL",
+             dzc_ok ? "OK" : "FAIL", ofc_ok ? "OK" : "FAIL",
+             ioc_ok ? "OK" : "FAIL", exact_clean ? "OK" : "FAIL");
+    report += buf;
+    (void)vf; (void)vd;
   }
 
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", report.c_str());
