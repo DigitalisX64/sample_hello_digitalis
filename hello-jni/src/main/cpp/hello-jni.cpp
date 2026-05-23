@@ -18,9 +18,12 @@
 
 #include <android/log.h>
 #include <fenv.h>
+#include <pthread.h>
 #include <signal.h>
+#include <time.h>
 #include <ucontext.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -166,11 +169,254 @@ bool RunSigsegvRecoveryTest(std::string* report) {
   return all_ok;
 }
 
+// §K4 box (3): SIGUSR1 stress test.
+//
+// Property under test: rapid SIGUSR1 delivery from a sibling thread during
+// heavy pthread_mutex contention must not deadlock or lose iterations. This
+// stresses the futex-based pthread_mutex_{lock,unlock} path under EINTR-style
+// interruptions (futex syscalls can return -EINTR when a signal arrives mid-
+// wait; bionic's pthread_mutex retries internally).
+//
+// Layout:
+//   - Two worker threads each run kStressIterations of lock-then-unlock on a
+//     shared mutex. The critical section is intentionally tiny so the workers
+//     spend most cycles in lock-contention futex sleep, maximising the chance
+//     a SIGUSR1 lands during a futex wait.
+//   - One signaler thread spins for the duration, repeatedly pthread_kill'ing
+//     SIGUSR1 to both workers. The signaler is spawned BEFORE the workers and
+//     gated on a "workers_armed" atomic so its tight loop is already running
+//     by the time worker[0]/[1] begin their iteration loops — without this
+//     ordering the workers can finish 100 000 lock/unlock cycles in ~10 ms,
+//     beating the signaler-startup latency and observing zero signals.
+//   - A wall-clock deadline bounds the test: if either worker hasn't finished
+//     after kStressDeadlineSec the test is declared a deadlock.
+constexpr int kStressIterations = 200000;
+constexpr int kStressDeadlineSec = 10;
+// Sleep between signal bursts to avoid livelocking the workers via signal
+// storm. ~10 kHz (100 us between bursts) is rapid enough to land repeatedly
+// during the futex waits inside pthread_mutex_lock — under a single 200k-
+// iteration run the workers receive ~10^3 signals each — while still
+// leaving them enough CPU time to make forward progress between
+// interruptions. Without this throttle the signaler delivered >10^6
+// SIGUSR1/s and the workers livelocked, never completing.
+constexpr long kSignalerSleepNs = 100'000;
+
+struct StressWorkerArg {
+  pthread_mutex_t* mutex;
+  std::atomic<uint64_t>* iters_done;
+  std::atomic<bool>* should_stop;
+  std::atomic<bool>* armed;
+};
+
+struct StressForensics {
+  std::atomic<uint32_t> signals_observed;
+  std::atomic<uint64_t> worker0_iters;
+  std::atomic<uint64_t> worker1_iters;
+};
+
+StressForensics g_stress{};
+std::atomic<bool> g_signaler_stop{false};
+std::atomic<bool> g_workers_armed{false};
+
+void Sigusr1Handler(int /*sig*/, siginfo_t* /*info*/, void* /*ucontext*/) {
+  g_stress.signals_observed.fetch_add(1, std::memory_order_relaxed);
+}
+
+void* StressWorker(void* raw_arg) {
+  auto* arg = static_cast<StressWorkerArg*>(raw_arg);
+  // Wait until the main thread has spawned the signaler and set armed,
+  // so the signaler's pthread_kill loop is already pummelling us.
+  while (!arg->armed->load(std::memory_order_acquire)) {
+    asm volatile("yield" ::: "memory");
+  }
+  for (int i = 0; i < kStressIterations; ++i) {
+    pthread_mutex_lock(arg->mutex);
+    asm volatile("" ::: "memory");
+    pthread_mutex_unlock(arg->mutex);
+    arg->iters_done->fetch_add(1, std::memory_order_relaxed);
+  }
+  return nullptr;
+}
+
+struct StressSignalerArg {
+  std::atomic<pthread_t>* targets;  // pointer to caller-owned 2-element array
+};
+
+// Diagnostic: count successful pthread_kill calls so we can tell
+// "signaler never ran" from "pthread_kill returned ESRCH" from
+// "signals delivered but handler silent".
+std::atomic<uint64_t> g_pthread_kill_attempts{0};
+std::atomic<uint64_t> g_pthread_kill_failures{0};
+
+void* StressSignaler(void* raw_arg) {
+  auto* arg = static_cast<StressSignalerArg*>(raw_arg);
+  struct timespec sleep_ts = {0, kSignalerSleepNs};
+  while (!g_signaler_stop.load(std::memory_order_relaxed)) {
+    pthread_t t0 = arg->targets[0].load(std::memory_order_acquire);
+    pthread_t t1 = arg->targets[1].load(std::memory_order_acquire);
+    if (t0) {
+      g_pthread_kill_attempts.fetch_add(1, std::memory_order_relaxed);
+      if (pthread_kill(t0, SIGUSR1) != 0)
+        g_pthread_kill_failures.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (t1) {
+      g_pthread_kill_attempts.fetch_add(1, std::memory_order_relaxed);
+      if (pthread_kill(t1, SIGUSR1) != 0)
+        g_pthread_kill_failures.fetch_add(1, std::memory_order_relaxed);
+    }
+    nanosleep(&sleep_ts, nullptr);
+  }
+  return nullptr;
+}
+
+bool RunSigusr1StressTest(std::string* report) {
+  g_stress.signals_observed.store(0);
+  g_stress.worker0_iters.store(0);
+  g_stress.worker1_iters.store(0);
+  g_signaler_stop.store(false);
+  g_workers_armed.store(false);
+  g_pthread_kill_attempts.store(0);
+  g_pthread_kill_failures.store(0);
+
+  struct sigaction prev_sa{};
+  struct sigaction new_sa{};
+  new_sa.sa_sigaction = &Sigusr1Handler;
+  new_sa.sa_flags = SA_SIGINFO;  // explicitly NOT SA_RESTART — let futex see EINTR
+  sigemptyset(&new_sa.sa_mask);
+  if (sigaction(SIGUSR1, &new_sa, &prev_sa) != 0) {
+    *report = "[SIGUSR1-STRESS:FAIL sigaction errno]";
+    return false;
+  }
+  // Explicitly unblock SIGUSR1 on this thread to rule out an inherited
+  // signal mask hiding the smoking gun.
+  sigset_t unblock;
+  sigemptyset(&unblock);
+  sigaddset(&unblock, SIGUSR1);
+  pthread_sigmask(SIG_UNBLOCK, &unblock, nullptr);
+  // Self-test: raise SIGUSR1 from main and verify the handler runs. If this
+  // counter doesn't increment, the handler installation itself is broken and
+  // there's no point continuing with the worker/signaler dance.
+  uint32_t self_test_before = g_stress.signals_observed.load();
+  raise(SIGUSR1);
+  uint32_t self_test_after = g_stress.signals_observed.load();
+  bool self_test_ok = self_test_after > self_test_before;
+  // Reset so the visible signals=N number reflects only signaler-delivered
+  // signals during the contention loop.
+  g_stress.signals_observed.store(0);
+
+  pthread_mutex_t mu;
+  pthread_mutex_init(&mu, nullptr);
+
+  StressWorkerArg w0_arg{&mu, &g_stress.worker0_iters, &g_signaler_stop, &g_workers_armed};
+  StressWorkerArg w1_arg{&mu, &g_stress.worker1_iters, &g_signaler_stop, &g_workers_armed};
+
+  // Spawn signaler BEFORE workers, with target slots initially null. Fill the
+  // slots as worker pthread_t's become known, then arm. This guarantees the
+  // signaler's busy-loop is hot well before workers begin their iteration
+  // loop, so signals reliably land during contention.
+  std::atomic<pthread_t> target_slots[2];
+  target_slots[0].store(0);
+  target_slots[1].store(0);
+  StressSignalerArg sig_arg{target_slots};
+  pthread_t signaler;
+  if (pthread_create(&signaler, nullptr, &StressSignaler, &sig_arg) != 0) {
+    *report = "[SIGUSR1-STRESS:FAIL signaler pthread_create]";
+    sigaction(SIGUSR1, &prev_sa, nullptr);
+    pthread_mutex_destroy(&mu);
+    return false;
+  }
+
+  pthread_t w0, w1;
+  if (pthread_create(&w0, nullptr, &StressWorker, &w0_arg) != 0 ||
+      pthread_create(&w1, nullptr, &StressWorker, &w1_arg) != 0) {
+    *report = "[SIGUSR1-STRESS:FAIL worker pthread_create]";
+    g_signaler_stop.store(true);
+    pthread_join(signaler, nullptr);
+    sigaction(SIGUSR1, &prev_sa, nullptr);
+    pthread_mutex_destroy(&mu);
+    return false;
+  }
+  target_slots[0].store(w0, std::memory_order_release);
+  target_slots[1].store(w1, std::memory_order_release);
+  // Tiny grace period so the signaler observes the targets and starts
+  // delivering before the workers begin spinning.
+  struct timespec warmup = {0, 10 * 1000 * 1000};  // 10 ms
+  nanosleep(&warmup, nullptr);
+  g_workers_armed.store(true, std::memory_order_release);
+
+  // Poll worker iteration counters until both complete all iterations or
+  // the deadline elapses. We avoid pthread_timedjoin_np because it isn't
+  // unconditionally exposed by bionic's NDK headers; an iters-done atomic
+  // gives us the same termination signal with portable primitives. On
+  // deadlock the threads are intentionally leaked (one-shot JNI call) and
+  // we log FAIL so test-samples.sh can flag the regression.
+  struct timespec deadline_ts;
+  clock_gettime(CLOCK_MONOTONIC, &deadline_ts);
+  deadline_ts.tv_sec += kStressDeadlineSec;
+
+  bool finished = false;
+  while (true) {
+    if (g_stress.worker0_iters.load(std::memory_order_relaxed) ==
+            static_cast<uint64_t>(kStressIterations) &&
+        g_stress.worker1_iters.load(std::memory_order_relaxed) ==
+            static_cast<uint64_t>(kStressIterations)) {
+      finished = true;
+      break;
+    }
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec > deadline_ts.tv_sec ||
+        (now.tv_sec == deadline_ts.tv_sec && now.tv_nsec >= deadline_ts.tv_nsec)) {
+      break;
+    }
+    struct timespec slice = {0, 5 * 1000 * 1000};  // 5 ms
+    nanosleep(&slice, nullptr);
+  }
+
+  g_signaler_stop.store(true);
+  pthread_join(signaler, nullptr);
+
+  if (finished) {
+    pthread_join(w0, nullptr);
+    pthread_join(w1, nullptr);
+  }
+
+  bool iters_complete = finished;
+  uint32_t signals = g_stress.signals_observed.load();
+  bool signals_landed = signals > 0;
+  bool all_ok = self_test_ok && iters_complete && signals_landed;
+
+  sigaction(SIGUSR1, &prev_sa, nullptr);
+  if (finished) {
+    pthread_mutex_destroy(&mu);
+  }  // else: mutex may still be held by a stuck worker; intentionally leak
+
+  char buf[384];
+  std::snprintf(buf, sizeof(buf),
+                "[SIGUSR1-STRESS:%s self_test=%d finished=%d "
+                "w0_iters=%lu/%d w1_iters=%lu/%d signals=%u "
+                "kill_attempts=%lu kill_failures=%lu]",
+                all_ok ? "PASS" : "FAIL", self_test_ok ? 1 : 0,
+                finished ? 1 : 0,
+                static_cast<unsigned long>(g_stress.worker0_iters.load()),
+                kStressIterations,
+                static_cast<unsigned long>(g_stress.worker1_iters.load()),
+                kStressIterations, signals,
+                static_cast<unsigned long>(g_pthread_kill_attempts.load()),
+                static_cast<unsigned long>(g_pthread_kill_failures.load()));
+  *report = buf;
+  __android_log_print(all_ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR,
+                      kLogTag, "%s", buf);
+  return all_ok;
+}
+
 }  // namespace
 
 jstring StringFromJni(JNIEnv* env, jobject) {
   std::string report;
   RunSigsegvRecoveryTest(&report);
+  std::string stress_report;
+  RunSigusr1StressTest(&stress_report);
   // Keep the user-visible text identical to the legacy sample so the
   // existing screenshot reference still matches; the recovery report is
   // visible in logcat under tag "hello-jni".
