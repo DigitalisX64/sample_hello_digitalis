@@ -42,7 +42,6 @@ const int32_t NUM_TEAPOTS_X = 8;
 const int32_t NUM_TEAPOTS_Y = 8;
 const int32_t NUM_TEAPOTS_Z = 8;
 
-// region digitalis
 // In screenshot-test mode, freeze the per-teapot rotation increment so the
 // rendered output is deterministic at capture time. The launching
 // ScreenshotTestRule attaches a boolean Intent extra "screenshot_test_mode";
@@ -86,7 +85,6 @@ static bool ReadScreenshotTestModeExtra(android_app* app) {
   vm->DetachCurrentThread();
   return result;
 }
-// endregion
 
 //-------------------------------------------------------------------------
 // Shared state for our app.
@@ -113,9 +111,7 @@ class Engine {
   const ASensor* accelerometer_sensor_;
   ASensorEventQueue* sensor_event_queue_;
 
-  // region digitalis
   bool screenshot_test_mode_ = false;
-  // endregion
 
   void UpdateFPS(float fps);
   void ShowUI();
@@ -226,14 +222,12 @@ int Engine::InitDisplay(android_app* app) {
  */
 void Engine::DrawFrame() {
   float fps;
-  // region digitalis
   // Skip the FPS overlay update in screenshot-test mode so the Java-side text
   // view does not introduce a per-second-changing element into the captured
   // image.
   if (!screenshot_test_mode_ && monitor_.Update(fps)) {
     UpdateFPS(fps);
   }
-  // endregion
   double dTime = monitor_.GetCurrentTime();
   renderer_.Update(dTime);
 
@@ -404,10 +398,8 @@ void Engine::SetState(android_app* state) {
   doubletap_detector_.SetConfiguration(app_->config);
   drag_detector_.SetConfiguration(app_->config);
   pinch_detector_.SetConfiguration(app_->config);
-  // region digitalis
   screenshot_test_mode_ = ReadScreenshotTestModeExtra(app_);
   renderer_.SetScreenshotTestMode(screenshot_test_mode_);
-  // endregion
 }
 
 bool Engine::IsReady() {

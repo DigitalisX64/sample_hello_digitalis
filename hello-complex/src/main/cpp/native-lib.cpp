@@ -56,7 +56,6 @@ bool approxd(double got, double want) {
   return std::fabs(got - want) <= tol;
 }
 
-// region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
 // IEEE 754 binary32 -> binary16 ("F16C round-to-nearest-even" semantics)
 // and the inverse.  Same helpers as hello-fp16; copied verbatim so each
 // sample is self-contained.
@@ -115,7 +114,6 @@ bool approx_half(uint16_t got, uint16_t want) {
   float tol = 1e-3f * std::fabs(wf) + 1e-3f;
   return std::fabs(gf - wf) <= tol;
 }
-// endregion
 
 // FCADD V.4S, Vn, Vm, #rot  — single-precision, 2 complex pairs per vector.
 bool probe_fcadd_4s(std::string& report, char (&buf)[256], int rot) {
@@ -482,7 +480,6 @@ bool probe_fcmla_4s_idx(std::string& report, char (&buf)[256], int rot, int idx)
   return ok;
 }
 
-// region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
 // FCADD V.8H, Vn, Vm, #rot — half-precision, 4 complex pairs per vector.
 // llvm-mc-verified .inst opcodes:
 //   fcadd v0.4h, v1.4h, v2.4h, #90  = 0x2e42e420
@@ -913,7 +910,6 @@ bool probe_fcmla_fp16_4h_idx(std::string& report, char (&buf)[256], int rot,
   report += buf;
   return ok;
 }
-// endregion
 
 // FRINTA Rd, Rn — round-to-nearest, ties away from zero.  ARM ARM C7.2.119.
 // No native x86 ROUND* imm models ties-away, so the new JIT path lowers to
@@ -1816,10 +1812,9 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_4s_idx(report, buf, 180, 1));
   run(probe_fcmla_4s_idx(report, buf, 270, 1));
 
-  // region digitalis - Plan §H1 FP16 SIMD FCMA (handoff-61)
-  // 14 FP16 probes: FCADD .8H {#90,#270}, FCADD .4H {#90,#270} (Q=0
-  // zero-clear check), FCMLA .8H {#0,#90,#180,#270}, plus 6 FCMLA .8H idx
-  // covering all 4 indices and a sample of rotations.
+  // FP16 SIMD FCMA probes: FCADD .8H {#90,#270}, FCADD .4H {#90,#270}
+  // (Q=0 zero-clear check), FCMLA .8H {#0,#90,#180,#270}, plus 6
+  // FCMLA .8H idx covering all 4 indices and a sample of rotations.
   run(probe_fcadd_fp16_8h(report, buf, 90));
   run(probe_fcadd_fp16_8h(report, buf, 270));
   run(probe_fcadd_fp16_4h(report, buf, 90));
@@ -1844,7 +1839,6 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_fp16_4h_idx(report, buf, 90,  0));
   run(probe_fcmla_fp16_4h_idx(report, buf, 180, 0));
   run(probe_fcmla_fp16_4h_idx(report, buf, 270, 1));
-  // endregion
 
   // FRINTA scalar probes — 7 inputs × 3 precisions = 21 probes.
   // Exercises the new JIT path (handoff-81); the interpreter still owns

@@ -114,7 +114,6 @@ void MoreTeapotsRenderer::Init(const int32_t numX, const int32_t numY,
       for (int32_t z = 0; z < teapot_z_; ++z) {
         vec_mat_models_.push_back(ndk_helper::Mat4::Translation(
             x * gap_x + offset_x, y * gap_y + offset_y, z * gap_z + offset_z));
-        // region digitalis
         // In screenshot-test mode, derive colours and rotations deterministically
         // from the per-teapot index instead of via the libc PRNG so the
         // captured frame is identical across runs. The original random() path
@@ -136,7 +135,6 @@ void MoreTeapotsRenderer::Init(const int32_t numX, const int32_t numY,
           rotation_y = random() / float(RAND_MAX) - 0.5f;
         }
         vec_colors_.push_back(ndk_helper::Vec3(color_r, color_g, color_b));
-        // endregion
         vec_rotations_.push_back(
             ndk_helper::Vec2(rotation_x * 0.05f, rotation_y * 0.05f));
         vec_current_rotations_.push_back(
@@ -334,13 +332,11 @@ void MoreTeapotsRenderer::Render() {
     for (int32_t i = 0; i < teapot_x_ * teapot_y_ * teapot_z_; ++i) {
       // Rotation
       float x, y;
-      // region digitalis
       // Freeze rotation at the initial value when running under the screenshot
       // test rule so the rendered scene is identical frame-to-frame.
       if (!screenshot_test_mode_) {
         vec_current_rotations_[i] += vec_rotations_[i];
       }
-      // endregion
       vec_current_rotations_[i].Value(x, y);
       ndk_helper::Mat4 mat_rotation =
           ndk_helper::Mat4::RotationX(x) * ndk_helper::Mat4::RotationY(y);
@@ -370,13 +366,11 @@ void MoreTeapotsRenderer::Render() {
       glUniform4f(shader_param_.material_diffuse_, x, y, z, 1.f);
 
       // Rotation
-      // region digitalis
       // Freeze rotation at the initial value when running under the screenshot
       // test rule so the rendered scene is identical frame-to-frame.
       if (!screenshot_test_mode_) {
         vec_current_rotations_[i] += vec_rotations_[i];
       }
-      // endregion
       vec_current_rotations_[i].Value(x, y);
       ndk_helper::Mat4 mat_rotation =
           ndk_helper::Mat4::RotationX(x) * ndk_helper::Mat4::RotationY(y);

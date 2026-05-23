@@ -18,7 +18,6 @@
 
 #define USE_PHONG (1)
 
-// region digitalis
 // Originally lowp/mediump throughout; bumped to highp to remove per-pixel
 // floating-point precision noise that produced a ~6% RGB diff between
 // consecutive identical renders (visually identical, but enough to fail the
@@ -50,4 +49,3 @@ void main()
     gl_FragColor = colorDiffuse + colorSpecular;
 #endif
 }
-// endregion

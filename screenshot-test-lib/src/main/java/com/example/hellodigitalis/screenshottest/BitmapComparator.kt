@@ -24,7 +24,6 @@ object BitmapComparator {
 
         val diffBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         var totalDiff = 0L
-        // region digitalis
         // Compare only the RGB channels. The alpha channel is unreliable as a
         // similarity metric here because takeScreenshot() and BitmapFactory.
         // decodeStream() do not agree on alpha for opaque pixels — the in-memory
@@ -34,7 +33,6 @@ object BitmapComparator {
         // confirms RGB is identical; only alpha differs and the test should
         // ignore that channel.
         val totalMax = width.toLong() * height * 3 * 255 // 3 channels, max 255 per channel
-        // endregion
 
         val actualPixels = IntArray(width)
         val refPixels = IntArray(width)

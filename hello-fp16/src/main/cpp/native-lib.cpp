@@ -792,7 +792,7 @@ FP16V_OP_2SRC(facgt)
 FP16V_OP_FMA(fmla)
 FP16V_OP_FMA(fmls)
 
-// region digitalis - Plan §E2: Armv8.2-FP16 vector two-register miscellaneous.
+// Armv8.2-FP16 vector two-register miscellaneous.
 // llvm-mc-verified per-op encodings for v0.4h <- f(v1.4h):
 //   0x0ef8f820 fabs   v0.4h, v1.4h           (a=1, U=0, op=01111)
 //   0x2ef8f820 fneg   v0.4h, v1.4h           (a=1, U=1, op=01111)
@@ -834,7 +834,7 @@ FP16V_OP_CMP0(fcmge)
 FP16V_OP_CMP0(fcmle)
 FP16V_OP_CMP0(fcmlt)
 
-// region digitalis - Plan §E2 a=0/a=1 columns: FP16 vector two-reg-misc
+// FP16 vector two-reg-misc a=0/a=1 columns:
 // FRINT*/FCVT*/SCVTF/UCVTF/FRECPE/FRSQRTE.  All take a single .4h source
 // and produce a .4h destination (either half-precision FP or int16 bit
 // pattern, depending on the op).  Reuses the existing FP16V_OP_1SRC form.
@@ -859,10 +859,8 @@ FP16V_OP_1SRC(scvtf)    // int16 -> FP16
 FP16V_OP_1SRC(ucvtf)    // uint16 -> FP16
 FP16V_OP_1SRC(frecpe)   // reciprocal estimate
 FP16V_OP_1SRC(frsqrte)  // reciprocal sqrt estimate
-// endregion
-// endregion
 
-// region digitalis - Plan §E2 FP16 vector indexed FMLA/FMLS/FMUL (handoff-62).
+// FP16 vector indexed FMLA/FMLS/FMUL.
 // llvm-mc-verified .inst encodings (--mattr=+fullfp16):
 //   fmla v0.4h, v1.4h, v2.h[0] = 0x0f021020
 //   fmla v0.4h, v1.4h, v2.h[3] = 0x0f321020   (L=1,M=1,H=0; index=H:L:M=011)
@@ -918,7 +916,6 @@ FP16V_PROBE_4H(fmls_idx0_4h, 0x0f025020)
 FP16V_PROBE_8H(fmls_idx5_8h, 0x4f125820)
 FP16V_PROBE_4H(fmul_idx1_4h, 0x0f129020)
 FP16V_PROBE_8H(fmul_idx3_8h, 0x4f329020)
-// endregion
 
 // 8-lane (Q=1) variant for FADD — confirms that the Q bit threads through
 // the decoder (4-lane uses Q=0, 8-lane uses Q=1; same opcode/U/a bits).
@@ -1865,7 +1862,7 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
   fp16v_fmls(vA, vB, vD, vR);
   total++; if (check_vec(report, buf, "FMLS.4h", vR, vE, 4)) ok++;
 
-  // region digitalis - Plan §E2: Armv8.2-FP16 vector two-reg-misc probes.
+  // Armv8.2-FP16 vector two-reg-misc probes.
   // FABS/FNEG/FSQRT and FCMxxx-zero with .4h lanes.  Per-lane reference
   // uses the same HalfToSingle / SingleToHalf round-trip as the three-same
   // probes above.  Inputs cover positive/negative/recurring-fraction halves.
@@ -1934,9 +1931,8 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
   }
   fp16v_fcmle_zero(vCmp, vTrmR);
   total++; if (check_vec(report, buf, "FCMLE#0.4h", vTrmR, vTrmE, 4)) ok++;
-  // endregion
 
-  // region digitalis - Plan §E2 a=0/a=1 columns: FP16 vector two-reg-misc
+  // FP16 vector two-reg-misc a=0/a=1 columns:
   // FRINT* + FCVT*/SCVTF/UCVTF + FRECPE/FRSQRTE probes.
 
   // FRINT* — pick inputs that distinguish all 7 rounding modes:
@@ -2058,7 +2054,6 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
     fp16v_frsqrte(vRecpIn, vRecpR);
     total++; if (check_vec(report, buf, "FRSQRTE.4h", vRecpR, vRecpE, 4)) ok++;
   }
-  // endregion
 
   // 8-lane FADD: Q=1 path through the decoder.
   const uint16_t v8A[8] = {h_1p5, h_3p5, h_third, h_neg1p5, h_2p0,    h_3p25, h_zero,  h_neg2p7};
@@ -2071,7 +2066,7 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
   fp16v8_fadd(v8A, v8B, v8R);
   total++; if (check_vec(report, buf, "FADD.8h", v8R, v8E, 8)) ok++;
 
-  // region digitalis - Plan §E2 FP16 vector indexed FMLA/FMLS/FMUL probes.
+  // FP16 vector indexed FMLA/FMLS/FMUL probes.
   // Reference uses std::fma in binary64 for FMLA/FMLS (matching the
   // interpreter's round-trip), and plain binary32 multiply for FMUL.
   // The broadcast lane is a fully-populated Vm.8H regardless of Q.
@@ -2212,7 +2207,6 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
       total++; if (check_vec(report, buf, "FMUL.8h[3]", vR, vE, 8)) ok++;
     }
   }
-  // endregion
 
   std::snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", ok, total);
   report += buf;

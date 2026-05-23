@@ -33,7 +33,6 @@
 #define HELPER_CLASS_NAME \
   "com/sample/helper/NDKHelper"  // Class name of helper function
 
-// region digitalis
 // In screenshot-test mode, skip the per-frame FPS overlay update so the
 // captured image is bit-stable across runs. The launching
 // ScreenshotTestRule attaches a boolean Intent extra "screenshot_test_mode";
@@ -77,7 +76,6 @@ static bool ReadScreenshotTestModeExtra(android_app* app) {
   vm->DetachCurrentThread();
   return result;
 }
-// endregion
 
 //-------------------------------------------------------------------------
 // Shared state for our app.
@@ -104,9 +102,7 @@ class Engine {
   const ASensor* accelerometer_sensor_;
   ASensorEventQueue* sensor_event_queue_;
 
-  // region digitalis
   bool screenshot_test_mode_ = false;
-  // endregion
 
   void UpdateFPS(float fFPS);
   void ShowUI();
@@ -217,14 +213,12 @@ int Engine::InitDisplay(android_app* app) {
  */
 void Engine::DrawFrame() {
   float fps;
-  // region digitalis
   // Skip the FPS overlay update in screenshot-test mode so the Java-side text
   // view does not introduce a per-second-changing element into the captured
   // image.
   if (!screenshot_test_mode_ && monitor_.Update(fps)) {
     UpdateFPS(fps);
   }
-  // endregion
   renderer_.Update(monitor_.GetCurrentTime());
 
   // Just fill the screen with a color.
@@ -394,9 +388,7 @@ void Engine::SetState(android_app* state) {
   doubletap_detector_.SetConfiguration(app_->config);
   drag_detector_.SetConfiguration(app_->config);
   pinch_detector_.SetConfiguration(app_->config);
-  // region digitalis
   screenshot_test_mode_ = ReadScreenshotTestModeExtra(app_);
-  // endregion
 }
 
 bool Engine::IsReady() {

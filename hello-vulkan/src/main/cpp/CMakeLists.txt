@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
-# region digitalis
 # project(hello_digitalis CXX)
 project(hello_digitalis C CXX)
-# endregion
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +13,7 @@ target_include_directories(native_app_glue PUBLIC ${APP_GLUE_DIR})
 # Ensure native_app_glue symbols are not stripped
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
 
-# region digitalis - compile GLSL shaders to SPIR-V headers
+# Compile GLSL shaders to SPIR-V headers
 set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 set(SHADER_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 file(MAKE_DIRECTORY ${SHADER_OUTPUT_DIR})
@@ -63,7 +61,6 @@ foreach(SHADER ${SHADER_SOURCES})
 endforeach()
 
 add_custom_target(shaders DEPENDS ${SHADER_HEADERS})
-# endregion
 
 add_library(hello_digitalis SHARED
     main.cpp

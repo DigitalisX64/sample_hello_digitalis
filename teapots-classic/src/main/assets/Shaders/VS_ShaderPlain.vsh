@@ -23,7 +23,6 @@ attribute highp vec3    myNormal;
 attribute mediump vec2  myUV;
 attribute mediump vec4  myBone;
 
-// region digitalis
 // Same precision bump as the fragment shader — see ShaderPlain.fsh region.
 varying highp vec2    texCoord;
 varying highp   vec4    colorDiffuse;
@@ -43,7 +42,6 @@ uniform highp vec3      vLight0;
 uniform highp vec4       vMaterialDiffuse;
 uniform highp vec3       vMaterialAmbient;
 uniform highp vec4       vMaterialSpecular;
-// endregion
 
 void main(void)
 {

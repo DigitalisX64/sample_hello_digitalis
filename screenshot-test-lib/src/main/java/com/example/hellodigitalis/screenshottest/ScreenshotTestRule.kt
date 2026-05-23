@@ -68,7 +68,6 @@ class ScreenshotTestRule(
         Log.i(TAG, "fullScreen config=${fullScreen.config} hasAlpha=${fullScreen.hasAlpha()} premul=${fullScreen.isPremultiplied} w=${fullScreen.width} h=${fullScreen.height}")
         val cropped = cropSystemBars(fullScreen)
         fullScreen.recycle()
-        // region digitalis
         // UiAutomation.takeScreenshot() can return a HARDWARE-config bitmap whose
         // getPixels() reads silently fail (returning zeros) while bitmap.compress()
         // still works correctly via the GPU path. The discrepancy yields a false
@@ -84,7 +83,6 @@ class ScreenshotTestRule(
             cropped
         }
         Log.i(TAG, "actual config=${actual.config} hasAlpha=${actual.hasAlpha()} premul=${actual.isPremultiplied}")
-        // endregion
 
         // Check if we're in update-references mode
         val args = InstrumentationRegistry.getArguments()

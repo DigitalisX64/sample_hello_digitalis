@@ -70,7 +70,6 @@ enum class Color : uint32_t {
  * https://developer.android.com/guide/components/activities/activity-lifecycle
  * and the other docs in that section for more information.
  */
-// region digitalis
 // In screenshot-test mode, freeze the color cycle so the rendered output is
 // deterministic at capture time. The launching ScreenshotTestRule attaches a
 // boolean Intent extra "screenshot_test_mode"; we read it once from the Java
@@ -115,7 +114,6 @@ static bool ReadScreenshotTestModeExtra(android_app* app) {
   vm->DetachCurrentThread();
   return result;
 }
-// endregion
 
 class Engine {
  public:
@@ -188,11 +186,9 @@ class Engine {
   bool running_ = false;
   Color color_ = Color::kRed;
   std::chrono::time_point<std::chrono::steady_clock> last_update_;
-  // region digitalis
   // When true, Update() is a no-op so the rendered color stays at kRed for the
   // entire run. Captured once at construction time from the launch Intent.
   const bool screenshot_test_mode_;
-  // endregion
 
   void ScheduleNextTick() {
     AChoreographer_postFrameCallback(AChoreographer_getInstance(), Tick, this);
@@ -228,12 +224,10 @@ class Engine {
   }
 
   void Update() {
-    // region digitalis
     // Freeze color for deterministic screenshot capture.
     if (screenshot_test_mode_) {
       return;
     }
-    // endregion
     auto now = std::chrono::steady_clock::now();
     if (now - last_update_ > 1s) {
       switch (color_) {
