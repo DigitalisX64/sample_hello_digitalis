@@ -1117,7 +1117,7 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
 
   // Scalar FP32 (S) and FP64 (D) FpDataProc2 probes — the same five opcodes
   // probed for FP16 above (FMAX / FMIN / FMAXNM / FMINNM / FNMUL), exercising
-  // the JIT ftype=00 and ftype=01 lane-0 emit sequences added in handoff-92.
+  // the JIT ftype=00 and ftype=01 lane-0 emit sequences.
   // Inputs are finite (no NaN), so std::fmax/std::fmin match both ARM FMAX
   // (NaN-prop) and ARM FMAXNM (NaN-suppress) semantics bit-exactly.
   total++; if (check(report, buf, "FMAX.s",   u32_of_float(fp32_fmax  ( 1.5f, 3.5f)),

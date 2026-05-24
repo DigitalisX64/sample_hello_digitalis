@@ -1,7 +1,7 @@
 // hello-barriers: integration-level probes for ARM64 memory and synchronisation
 // barriers.
 //
-// Locks in the §G2 audit (handoff-35): every barrier-class HINT and the
+// Locks in the §G2 audit: every barrier-class HINT and the
 // CRn=0011 barrier family must decode to Nop() on Digitalis (we run above the
 // kernel and inherit host memory ordering via x86-TSO; the locked atomics
 // already provide release/acquire ordering ARM needs).  This sample emits

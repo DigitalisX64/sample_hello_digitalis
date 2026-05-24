@@ -1,7 +1,6 @@
 // hello-dotprod: integration-level probe for Armv8.4-DotProd (§C8 / §M1).
 //
-// Probes every SDOT/UDOT encoding the §C8 decoder + interpreter implemented
-// in this cycle (handoff-54):
+// Probes every SDOT/UDOT encoding the §C8 decoder + interpreter implement:
 //
 //   SDOT V.4S, Vn.16B, Vm.16B          signed,   4 lanes, vector form
 //   UDOT V.4S, Vn.16B, Vm.16B          unsigned, 4 lanes, vector form

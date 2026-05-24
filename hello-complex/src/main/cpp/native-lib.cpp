@@ -1,7 +1,7 @@
 // hello-complex: integration-level probe for Armv8.3-FCMA (§H1 / §M1).
 //
-// Probes every FCMA encoding the §H1 decoder + interpreter implemented
-// in handoff-49.  FCADD has two rotations (#90 / #270); FCMLA has four
+// Probes every FCMA encoding the §H1 decoder + interpreter implements.
+// FCADD has two rotations (#90 / #270); FCMLA has four
 // rotations (#0 / #90 / #180 / #270).  Each is exercised at .4S vector,
 // .2D vector, and .2S half-vector widths where the encoding allows.
 //
@@ -21,7 +21,7 @@
 // per-rotation probes would each give the wrong sign in either the real
 // or imaginary half.
 //
-// llvm-mc-verified encodings (cited in handoff-49):
+// llvm-mc-verified encodings:
 //   0x6e82e420  fcadd v0.4s, v1.4s, v2.4s, #90
 //   0x6e82f420  fcadd v0.4s, v1.4s, v2.4s, #270
 //   0x6ec2e420  fcadd v0.2d, v1.2d, v2.2d, #90
@@ -370,7 +370,7 @@ bool probe_fcmla_2d(std::string& report, char (&buf)[256], int rot) {
 // FCMLA V.4S, Vn, Vm.s[idx], #rot — FP32 by-element.
 // Vm[idx] broadcasts ONE complex pair (Vm.s[2*idx], Vm.s[2*idx+1]) across
 // every output complex pair of Vd.  Vd is read-modify-write.
-// Encoded inst opcodes (handoff-58 llvm-mc):
+// Encoded inst opcodes (llvm-mc):
 //   idx=0: 0x6F821020 #0   0x6F823020 #90   0x6F825020 #180  0x6F827020 #270
 //   idx=1: 0x6F821820 #0   0x6F823820 #90   0x6F825820 #180  0x6F827820 #270
 bool probe_fcmla_4s_idx(std::string& report, char (&buf)[256], int rot, int idx) {
@@ -1271,11 +1271,11 @@ bool probe_fneg_4h_zero_upper(std::string& report, char (&buf)[256]) {
   return ok;
 }
 
-// Vector FP16 FRINT* (.8H) — F16C round-trip JIT path with ROUNDPS imm
-// (handoff-86).  Each probe rounds an 8-lane FP16 input via one of the
-// six FRINT mnemonics and verifies bit-exact agreement with the
-// host-computed FP32 reference (FP16 quantized).  Per the handoff-82
-// standing rule, F16C round-trip is exact for FP16 unary FRINT*.
+// Vector FP16 FRINT* (.8H) — F16C round-trip JIT path with ROUNDPS imm.
+// Each probe rounds an 8-lane FP16 input via one of the six FRINT
+// mnemonics and verifies bit-exact agreement with the host-computed
+// FP32 reference (FP16 quantized).  Per the standing rule, F16C
+// round-trip is exact for FP16 unary FRINT*.
 #define PROBE_VEC_FRINT_8H(NAME, MNEMONIC, W0, W1, W2, W3, W4, W5, W6, W7) \
   bool probe_##NAME##_8h(std::string& report, char (&buf)[256]) {            \
     alignas(16) uint16_t n[8] = {                                            \
@@ -1801,7 +1801,7 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_2d(report, buf, 90));
   run(probe_fcmla_2d(report, buf, 180));
   run(probe_fcmla_2d(report, buf, 270));
-  // FCMLA by element (Armv8.3-FCMA idx) — handoff-58 §H1.
+  // FCMLA by element (Armv8.3-FCMA idx) — §H1.
   // All 4 rotations × 2 indices = 8 probes; covers Vm broadcast & rot table.
   run(probe_fcmla_4s_idx(report, buf, 0,   0));
   run(probe_fcmla_4s_idx(report, buf, 90,  0));
@@ -1841,7 +1841,7 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_fp16_4h_idx(report, buf, 270, 1));
 
   // FRINTA scalar probes — 7 inputs × 3 precisions = 21 probes.
-  // Exercises the new JIT path (handoff-81); the interpreter still owns
+  // Exercises the new JIT path; the interpreter still owns
   // any case that bails (none under the current host platform).
   const struct { float in; float want; } frinta_cases[] = {
       {0.5f, 1.0f},   {-0.5f, -1.0f}, {1.5f, 2.0f},  {-1.5f, -2.0f},
@@ -1919,7 +1919,7 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fabs_4h_zero_upper(report, buf));
   run(probe_fneg_8h(report, buf));
   run(probe_fneg_4h_zero_upper(report, buf));
-  // FP16 vector FRINT* (F16C round-trip + ROUNDPS imm JIT path; handoff-86).
+  // FP16 vector FRINT* (F16C round-trip + ROUNDPS imm JIT path).
   run(probe_frintn_8h(report, buf));
   run(probe_frintm_8h(report, buf));
   run(probe_frintp_8h(report, buf));

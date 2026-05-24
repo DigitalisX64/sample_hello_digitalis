@@ -1,18 +1,17 @@
 // hello-bf16: integration-level probe for Armv8.6-BF16 (§H2 / §M1).
 //
-// Probes every BFloat16 encoding implemented by the interpreter in
-// handoffs 50/51:
+// Probes every BFloat16 encoding implemented by the interpreter:
 //
-//   BFCVT  (scalar)              FP32 -> BF16 RTNE       (handoff-50)
-//   BFCVTN  vec  .4h, .4s        FP32x4 -> BF16x4 low    (handoff-51)
-//   BFCVTN2 vec  .8h, .4s        FP32x4 -> BF16x4 high   (handoff-51)
-//   BFDOT  vec   .4s, .8h, .8h   per-lane dot(BF16 pair) (handoff-50)
-//   BFDOT  idx   .4s, .8h, .2h[i] broadcast BF16 pair    (handoff-51)
-//   BFMMLA       .4s, .8h, .8h   2x2 = 2x4 . (2x4)^T     (handoff-50)
-//   BFMLALB vec  .4s, .8h, .8h   low half widening MAC   (handoff-51)
-//   BFMLALT vec  .4s, .8h, .8h   high half widening MAC  (handoff-51)
-//   BFMLALB idx  .4s, .8h, .h[i] broadcast BF16 lane (B) (handoff-51)
-//   BFMLALT idx  .4s, .8h, .h[i] broadcast BF16 lane (T) (handoff-51)
+//   BFCVT  (scalar)              FP32 -> BF16 RTNE
+//   BFCVTN  vec  .4h, .4s        FP32x4 -> BF16x4 low
+//   BFCVTN2 vec  .8h, .4s        FP32x4 -> BF16x4 high
+//   BFDOT  vec   .4s, .8h, .8h   per-lane dot(BF16 pair)
+//   BFDOT  idx   .4s, .8h, .2h[i] broadcast BF16 pair
+//   BFMMLA       .4s, .8h, .8h   2x2 = 2x4 . (2x4)^T
+//   BFMLALB vec  .4s, .8h, .8h   low half widening MAC
+//   BFMLALT vec  .4s, .8h, .8h   high half widening MAC
+//   BFMLALB idx  .4s, .8h, .h[i] broadcast BF16 lane (B)
+//   BFMLALT idx  .4s, .8h, .h[i] broadcast BF16 lane (T)
 //
 // Each probe drives one inline-asm instruction with stack-allocated
 // 16-byte aligned input/output buffers, then computes the expected
@@ -34,7 +33,7 @@
 
 namespace {
 
-// BF16 helpers — these mirror the interpreter helpers added in handoff-50.
+// BF16 helpers — these mirror the interpreter helpers.
 
 inline float bf2f(uint16_t bf) {
   uint32_t u = static_cast<uint32_t>(bf) << 16;
@@ -323,7 +322,7 @@ bool probe_bfmlal_vec(std::string& report, char (&buf)[256], bool top) {
 
 bool probe_bfmlal_idx(std::string& report, char (&buf)[256], bool top) {
   // BFMLAL indexed encoding uses index = (H << 2) | (L << 1) | M with:
-  //   L at bit 21, M at bit 20, H at bit 11 (handoff-51 verified all three).
+  //   L at bit 21, M at bit 20, H at bit 11 (all three verified via llvm-mc).
   // Pick index=1 (M=1): bfmlalb v0.4s, v1.8h, v2.h[1] = 0x0fd2f020.
   // BFMLALT idx[1]: bit30=1 -> 0x4fd2f020.
   // Vm lane consumed is index 1 -> Vm.h[1].

@@ -5,8 +5,8 @@
 // stronger than Arm's RCpc (load-acquire RCpc Register) and stronger than
 // the limited-ordering region store-release.  The translator therefore
 // decodes LDAPR/LDAPRB/LDAPRH and LDLAR/STLLR/STLLRB/STLLRH as plain x86
-// loads/stores (the latter routed to kLdar/kStlr in handoff-31; the
-// former gated on Rs=11111 in DecodeAtomicMemoryOp).
+// loads/stores (the latter routed to kLdar/kStlr; the former gated on
+// Rs=11111 in DecodeAtomicMemoryOp).
 //
 // This sample exercises each opcode via inline asm against a stack buffer.
 // All probes are single-threaded; they only verify that the instruction

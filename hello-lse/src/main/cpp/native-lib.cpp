@@ -1,19 +1,19 @@
 // hello-lse: integration-level probes for the Armv8.1-LSE atomic family.
 //
-// Locks in the §B1-§B4 routing fixes from handoff-33 (LDEOR/LDSET swap)
-// and handoff-34 (CAS/CASP dispatch swap).  Each probe is an *inline-asm
+// Locks in the §B1-§B4 routing fixes (LDEOR/LDSET swap, and CAS/CASP
+// dispatch swap).  Each probe is an *inline-asm
 // emit* of one LSE opcode so the compiler can't rewrite it across -O
 // levels or substitute a non-LSE LL/SC pair.  CMakeLists.txt builds with
 // -march=armv8.1-a+lse for completeness.
 //
 // Probe coverage:
 //   CAS    W / X         -- single-register compare-and-swap
-//   CASP   W / X         -- pair compare-and-swap (regression: handoff-34)
+//   CASP   W / X         -- pair compare-and-swap (regression target)
 //   SWP    W / X         -- atomic exchange
 //   LDADD  W / X         -- fetch-add
-//   LDCLR  W / X         -- fetch-and-with-NOT-of-operand (regression: handoff-33)
-//   LDEOR  W / X         -- fetch-xor (regression: handoff-33 swap with LDSET)
-//   LDSET  W / X         -- fetch-or  (regression: handoff-33 swap with LDEOR)
+//   LDCLR  W / X         -- fetch-and-with-NOT-of-operand (regression target)
+//   LDEOR  W / X         -- fetch-xor (regression target: swap with LDSET)
+//   LDSET  W / X         -- fetch-or  (regression target: swap with LDEOR)
 //   LDSMAX / LDSMIN W    -- signed max/min (§B3)
 //   LDUMAX / LDUMIN W    -- unsigned max/min (§B3)
 //
@@ -251,7 +251,7 @@ Java_com_example_hellolse_MainActivity_probeLse(JNIEnv* env, jobject /*this*/) {
   }
 
   // --- CASP W (pair of 32-bit, 8-byte aligned) ---
-  // This is the regression target for handoff-34: prior decoder routed
+  // This is the regression target for CASP: prior decoder routed
   // o1=1 universally to kCas, miscompiling CASP as a single-register CAS.
   {
     alignas(8) uint32_t pair[2] = {0x1111, 0x2222};
@@ -338,7 +338,7 @@ Java_com_example_hellolse_MainActivity_probeLse(JNIEnv* env, jobject /*this*/) {
     report += buf;
   }
 
-  // --- LDCLR W / X --- (regression: handoff-33 LDEOR/LDSET swap context)
+  // --- LDCLR W / X --- (regression target: LDEOR/LDSET swap context)
   // LDCLR semantics: mem' = mem AND NOT(Rs).  Pick mask = 0xFF00 so the
   // result differs from LDSET (OR) and LDEOR (XOR).
   {
@@ -358,7 +358,7 @@ Java_com_example_hellolse_MainActivity_probeLse(JNIEnv* env, jobject /*this*/) {
     report += buf;
   }
 
-  // --- LDEOR W / X --- (handoff-33 regression target)
+  // --- LDEOR W / X --- (regression target)
   {
     uint32_t mem_w = 0x0F0F;
     uint32_t old_w = ldeor_w(&mem_w, 0xFF00);
@@ -376,7 +376,7 @@ Java_com_example_hellolse_MainActivity_probeLse(JNIEnv* env, jobject /*this*/) {
     report += buf;
   }
 
-  // --- LDSET W / X --- (handoff-33 regression target — was swapped with LDEOR)
+  // --- LDSET W / X --- (regression target — was swapped with LDEOR)
   {
     uint32_t mem_w = 0x0F0F;
     uint32_t old_w = ldset_w(&mem_w, 0xFF00);

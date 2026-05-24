@@ -11,7 +11,7 @@
 //   PAC-RET prologue/epilogue   -- compiled in via -mbranch-protection=pac-ret;
 //                                  every non-leaf function emits PACIASP at
 //                                  entry and AUTIASP at exit.
-//   PACIA / AUTIA  on Xn,Xm     -- DP-1Src opcode2=00001 (handoff-30 routing)
+//   PACIA / AUTIA  on Xn,Xm     -- DP-1Src opcode2=00001
 //   PACIZA / AUTIZA on Xn       -- same family, Xm hardcoded to XZR
 //   PACDA / AUTDA  on Xn,Xm     -- data-key variants
 //   XPACI / XPACD               -- explicit strip (identity on Digitalis)
@@ -156,7 +156,7 @@ inline bool probe_xpaclri() {
 
 // §F2: BLRAA / BLRAB -- branch-with-link to a register, authenticated with
 // key A / key B and a modifier register.  On Digitalis these decode to
-// plain BLR after handoff-32.  The probe BLRAA's to a local label that
+// plain BLR.  The probe BLRAA's to a local label that
 // increments the counter and returns.
 inline bool probe_blraa() {
   uint64_t counter = 0;
@@ -261,13 +261,13 @@ Java_com_example_hellopacret_MainActivity_probe(JNIEnv* env,
     bool (*fn)();
   };
   const Probe probes[] = {
-      // HINT-form (§F1, handoff-30)
+      // HINT-form (§F1)
       {"PACIASP/AUTIASP", probe_paciasp_autiasp},
       {"PACIBSP/AUTIBSP", probe_pacibsp_autibsp},
       {"PACIAZ/AUTIAZ",   probe_paciaz_autiaz},
       {"PACIBZ/AUTIBZ",   probe_pacibz_autibz},
       {"XPACLRI",         probe_xpaclri},
-      // PAC-by-register (§F1, handoff-30)
+      // PAC-by-register (§F1)
       {"PACIA",   probe_pacia},
       {"AUTIA",   probe_autia},
       {"PACIB",   probe_pacib},
@@ -286,7 +286,7 @@ Java_com_example_hellopacret_MainActivity_probe(JNIEnv* env,
       {"AUTDZB",  probe_autdzb},
       {"XPACI",   probe_xpaci},
       {"XPACD",   probe_xpacd},
-      // Branch-with-PAC (§F2, handoff-32)
+      // Branch-with-PAC (§F2)
       {"BLRAA",   probe_blraa},
       {"BLRAB",   probe_blrab},
       {"BLRAAZ",  probe_blraaz},
