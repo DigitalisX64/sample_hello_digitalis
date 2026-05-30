@@ -436,6 +436,49 @@ bool probe_sm4(std::string* log) {
   return ekey_ok && e_ok;
 }
 
+// SM3 (FEAT_SM3): SM3SS1 / SM3TT1A / SM3PARTW1 / SM3PARTW2. Emitted via raw
+// .inst so the probe builds without an +sm3 toolchain; inputs/outputs are the
+// values validated against the SM3 round/expansion (the full sequence yields
+// the published SM3("abc") digest).
+bool probe_sm3(std::string* log) {
+  alignas(16) uint32_t d[4], a[4], b[4], c[4];
+  auto set = [](uint32_t* w, uint64_t lo, uint64_t hi) {
+    w[0] = (uint32_t)lo; w[1] = (uint32_t)(lo >> 32);
+    w[2] = (uint32_t)hi; w[3] = (uint32_t)(hi >> 32);
+  };
+  auto eq = [](const uint32_t* w, uint64_t lo, uint64_t hi) {
+    return w[0] == (uint32_t)lo && w[1] == (uint32_t)(lo >> 32) &&
+           w[2] == (uint32_t)hi && w[3] == (uint32_t)(hi >> 32);
+  };
+  // SM3SS1 v0, v1, v2, v3 (.inst 0xce420c20)
+  set(a, 0x0000000200000001ULL, 0x7380166F00000003ULL);
+  set(b, 0x0000000500000004ULL, 0xA96F30BC00000006ULL);
+  set(c, 0x0000000800000007ULL, 0x79CC451900000009ULL);
+  __asm__ __volatile__("ldr q1,[%1]\nldr q2,[%2]\nldr q3,[%3]\n.inst 0xce420c20\nstr q0,[%0]\n"
+                       : : "r"(d), "r"(a), "r"(b), "r"(c) : "v0","v1","v2","v3","memory");
+  bool ss1_ok = eq(d, 0ULL, 0x5136869200000000ULL);
+  // SM3PARTW1 v0, v1, v2 (.inst 0xce62c020)
+  set(d, 0x89ABCDEF01234567ULL, 0x76543210FEDCBA98ULL);
+  set(a, 0x102030400A0B0C0DULL, 0x99AABBCC55667788ULL);
+  set(b, 0xCAFEBABEDEADBEEFULL, 0x12345678FEEDFACEULL);
+  __asm__ __volatile__("ldr q0,[%0]\nldr q1,[%1]\nldr q2,[%2]\n.inst 0xce62c020\nstr q0,[%0]\n"
+                       : : "r"(d), "r"(a), "r"(b) : "v0","v1","v2","memory");
+  bool pw1_ok = eq(d, 0x493246EECAD6BCB8ULL, 0x9C21E510E7C3C72BULL);
+  // SM3PARTW2 v0, v1, v2 (.inst 0xce62c420)
+  set(d, 0x89ABCDEF01234567ULL, 0x76543210FEDCBA98ULL);
+  set(a, 0x102030400A0B0C0DULL, 0x99AABBCC55667788ULL);
+  set(b, 0xCAFEBABEDEADBEEFULL, 0x12345678FEEDFACEULL);
+  __asm__ __volatile__("ldr q0,[%0]\nldr q1,[%1]\nldr q2,[%2]\n.inst 0xce62c420\nstr q0,[%0]\n"
+                       : : "r"(d), "r"(a), "r"(b) : "v0","v1","v2","memory");
+  bool pw2_ok = eq(d, 0x534D5759DA08FD0DULL, 0xB13D8224B30A847CULL);
+  bool ok = ss1_ok && pw1_ok && pw2_ok;
+  char buf[96];
+  snprintf(buf, sizeof(buf), "  SM3 SS1=%s PARTW1=%s PARTW2=%s\n",
+           ss1_ok ? "OK" : "FAIL", pw1_ok ? "OK" : "FAIL", pw2_ok ? "OK" : "FAIL");
+  *log += buf;
+  return ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -455,6 +498,7 @@ Java_com_example_hellosha_MainActivity_probeShaCrypto(JNIEnv* env,
   all_ok &= probe_sha512su0(&report);
   all_ok &= probe_sha512su1(&report);
   all_ok &= probe_sha3(&report);
+  all_ok &= probe_sm3(&report);
   all_ok &= probe_sm4(&report);
 
   report += all_ok ? "All SHA crypto ops OK.\n"
