@@ -312,6 +312,51 @@ bool probe_dot_2s_idx(std::string& report, char (&buf)[256], int idx) {
   return ok;
 }
 
+// region digitalis - I8MM (FEAT_I8MM): USDOT (mixed-sign dot product) and the
+// integer matrix-multiply-accumulate SMMLA/UMMLA/USMMLA. Emitted via raw .inst
+// so the probe builds without an +i8mm toolchain. Vn byte0=0x80 / byte8=0xFF
+// distinguish signed vs unsigned operand handling, so SMMLA/UMMLA/USMMLA must
+// produce distinct results.
+bool probe_i8mm(std::string& report, char (&buf)[256]) {
+  alignas(16) uint8_t n[16] = {0x80, 2, 3, 4, 5, 6, 7, 8,
+                               0xFF, 2, 2, 2, 1, 1, 1, 1};
+  alignas(16) uint8_t m[16] = {0x01, 0x01, 0x01, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+                               0x02, 0x02, 0x02, 0x02, 0xFE, 0xFE, 0xFE, 0xFE};
+  alignas(16) int32_t out[4];
+#define RUN_I8MM(enc)                                          \
+  std::memset(out, 0, sizeof(out));                            \
+  __asm__ __volatile__("ldr q1, [%0]\n"                        \
+                       "ldr q2, [%1]\n"                        \
+                       "ldr q0, [%2]\n"                        \
+                       ".inst " #enc "\n"                      \
+                       "str q0, [%2]\n"                        \
+                       :                                       \
+                       : "r"(n), "r"(m), "r"(out)              \
+                       : "v0", "v1", "v2", "memory")
+  bool ok = true;
+  RUN_I8MM(0x4E829C20);  // usdot v0.4s, v1.16b, v2.16b
+  ok &= (static_cast<uint32_t>(out[0]) == 0x00000089u &&
+         static_cast<uint32_t>(out[1]) == 0xffffffe6u &&
+         static_cast<uint32_t>(out[2]) == 0x0000020au &&
+         static_cast<uint32_t>(out[3]) == 0xfffffff8u);
+  RUN_I8MM(0x4E82A420);  // smmla v0.4s, v1.16b, v2.16b
+  ok &= (static_cast<uint32_t>(out[0]) == 0xffffff6fu &&
+         static_cast<uint32_t>(out[1]) == 0xfffffedeu &&
+         out[2] == 0x00000001 && out[3] == 0x00000002);
+  RUN_I8MM(0x6E82A420);  // ummla v0.4s, v1.16b, v2.16b
+  ok &= (out[0] == 0x00001a6f && out[1] == 0x00001ade &&
+         out[2] == 0x00000501 && out[3] == 0x00000602);
+  RUN_I8MM(0x4E82AC20);  // usmmla v0.4s, v1.16b, v2.16b
+  ok &= (out[0] == 0x0000006f && out[1] == 0x000000de &&
+         out[2] == 0x00000101 && out[3] == 0x00000202);
+#undef RUN_I8MM
+  snprintf(buf, sizeof(buf), "  I8MM USDOT/SMMLA/UMMLA/USMMLA: %s\n",
+           ok ? "OK" : "FAIL");
+  report += buf;
+  return ok;
+}
+// endregion
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -336,6 +381,7 @@ Java_com_example_hellodotprod_MainActivity_probeDotProd(JNIEnv* env,
   run(probe_dot_4s_idx<false>(report, buf, 3));// UDOT .4S idx[3]
   run(probe_dot_2s_idx<true>(report, buf, 0)); // SDOT .2S idx[0]
   run(probe_dot_2s_idx<false>(report, buf, 3));// UDOT .2S idx[3]
+  run(probe_i8mm(report, buf));                // I8MM USDOT/SMMLA/UMMLA/USMMLA
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
   report += buf;
