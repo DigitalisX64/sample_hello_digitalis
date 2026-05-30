@@ -333,6 +333,26 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
     report += buf;
   }
 
+  // FCVTXN (FP64->FP32 narrow, round-to-odd). Exact lanes pass through; an
+  // inexact lane is forced to an odd FP32 (round-to-odd).
+  {
+    float64x2_t din = {1.5, 2.5};
+    alignas(8) float fout[2];
+    vst1_f32(fout, vcvtx_f32_f64(din));
+    bool exact_ok = fout[0] == 1.5f && fout[1] == 2.5f;
+    // 1.0 + 2^-30 is not representable in FP32; round-to-odd makes it odd.
+    float64x2_t din2 = {1.0 + 1.0 / (1 << 30), 1.0};
+    alignas(8) float fout2[2];
+    vst1_f32(fout2, vcvtx_f32_f64(din2));
+    uint32_t b0;
+    __builtin_memcpy(&b0, &fout2[0], 4);
+    bool odd_ok = (b0 & 1u) == 1u && fout2[1] == 1.0f;
+    char buf[96];
+    snprintf(buf, sizeof(buf), "  FCVTXN exact=%s round-to-odd=%s\n",
+             exact_ok ? "OK" : "FAIL", odd_ok ? "OK" : "FAIL");
+    report += buf;
+  }
+
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", report.c_str());
   return env->NewStringUTF(report.c_str());
 }
