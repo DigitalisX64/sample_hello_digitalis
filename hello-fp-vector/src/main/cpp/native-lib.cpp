@@ -123,6 +123,38 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
     report += buf;
   }
 
+  // .4S pairwise: FADDP / FMAXP / FMINP.  Each reduces adjacent element
+  // pairs — result low half from Vn's pairs, high half from Vm's pairs.
+  {
+    alignas(16) float a[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+    alignas(16) float b[4] = {5.0f, 6.0f, 7.0f, 8.0f};
+    alignas(16) float c[4] = {1.0f, 4.0f, 2.0f, 3.0f};
+    alignas(16) float d[4] = {8.0f, 5.0f, 6.0f, 7.0f};
+    alignas(16) float out[4];
+    float32x4_t va = vld1q_f32(a);
+    float32x4_t vb = vld1q_f32(b);
+    float32x4_t vc = vld1q_f32(c);
+    float32x4_t vd = vld1q_f32(d);
+
+    vst1q_f32(out, vpaddq_f32(va, vb));   // FADDP -> {3, 7, 11, 15}
+    bool faddp_ok = approx_eq(out[0], 3) && approx_eq(out[1], 7) &&
+                    approx_eq(out[2], 11) && approx_eq(out[3], 15);
+
+    vst1q_f32(out, vpmaxq_f32(vc, vd));   // FMAXP -> {4, 3, 8, 7}
+    bool fmaxp_ok = approx_eq(out[0], 4) && approx_eq(out[1], 3) &&
+                    approx_eq(out[2], 8) && approx_eq(out[3], 7);
+
+    vst1q_f32(out, vpminq_f32(vc, vd));   // FMINP -> {1, 2, 5, 6}
+    bool fminp_ok = approx_eq(out[0], 1) && approx_eq(out[1], 2) &&
+                    approx_eq(out[2], 5) && approx_eq(out[3], 6);
+
+    char buf[256];
+    snprintf(buf, sizeof(buf), "  .4Sp FADDP=%s FMAXP=%s FMINP=%s\n",
+             faddp_ok ? "OK" : "FAIL", fmaxp_ok ? "OK" : "FAIL",
+             fminp_ok ? "OK" : "FAIL");
+    report += buf;
+  }
+
   // .2D cases
   {
     alignas(16) double a[2] = {1.5, 2.5};
