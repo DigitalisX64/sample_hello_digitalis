@@ -19,13 +19,54 @@
 #include <android/log.h>
 #include <jni.h>
 
+#include <csetjmp>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <ucontext.h>
 
 #define LOG_TAG "hellobti"
 
 namespace {
+
+// BRK breakpoint probe: BRK #imm must reach a guest breakpoint handler (as a
+// debugger or sanitizer would install) at the faulting PC, not abort with an
+// illegal-instruction. Install a handler that records the faulting instruction
+// and longjmps out, execute `brk #0x1f`, and confirm the handler saw a BRK with
+// the right immediate. (No literal signal-name strings are logged — the sample
+// liveness check greps those as crash markers.)
+sigjmp_buf g_brk_jmp;
+volatile sig_atomic_t g_brk_hit = 0;
+volatile uint32_t g_brk_insn = 0;
+void brk_handler(int /*sig*/, siginfo_t* /*info*/, void* uc) {
+  g_brk_hit = 1;
+  auto* u = static_cast<ucontext_t*>(uc);
+  g_brk_insn = *reinterpret_cast<const uint32_t*>(u->uc_mcontext.pc);
+  siglongjmp(g_brk_jmp, 1);
+}
+inline bool probe_brk() {
+  struct sigaction sa = {};
+  struct sigaction old_sa = {};
+  sa.sa_sigaction = brk_handler;
+  sa.sa_flags = SA_SIGINFO;
+  sigemptyset(&sa.sa_mask);
+  if (sigaction(SIGTRAP, &sa, &old_sa) != 0) return false;
+  g_brk_hit = 0;
+  g_brk_insn = 0;
+  bool ok = false;
+  if (sigsetjmp(g_brk_jmp, 1) == 0) {
+    __asm__ __volatile__("brk #0x1f" ::: "memory");
+    // Reaching here means BRK did NOT trap — failure.
+  } else {
+    // BRK #imm = 0xD4200000 | (imm << 5); recovered instruction must match
+    // with immediate 0x1f.
+    ok = g_brk_hit && ((g_brk_insn & 0xFFE0001Fu) == 0xD4200000u) &&
+         (((g_brk_insn >> 5) & 0xFFFFu) == 0x1Fu);
+  }
+  sigaction(SIGTRAP, &old_sa, nullptr);
+  return ok;
+}
 
 inline bool probe_bti() {
   __asm__ __volatile__("bti" ::: "memory");
@@ -102,6 +143,18 @@ Java_com_example_hellobti_MainActivity_probeBti(JNIEnv* env,
   snprintf(buf, sizeof(buf),
            "  %-10s -> got=%d, expect=15: %s\n",
            "indir-call", got, ind_ok ? "OK" : "FAIL");
+  report += buf;
+
+  // BRK breakpoint delivery (BRK #imm -> guest trap handler at the BRK PC).
+  bool brk_ok = probe_brk();
+  ++total;
+  if (brk_ok) ++passed;
+  __android_log_print(ANDROID_LOG_INFO, LOG_TAG,
+                      "  brk #imm  -> breakpoint handler reached: %s",
+                      brk_ok ? "OK" : "FAIL");
+  snprintf(buf, sizeof(buf),
+           "  %-10s -> breakpoint handler reached: %s\n", "brk #imm",
+           brk_ok ? "OK" : "FAIL");
   report += buf;
 
   snprintf(buf, sizeof(buf), "Summary: %d/%d OK\n", passed, total);
