@@ -377,6 +377,38 @@ bool probe_sha512su1(std::string* log) {
   return ok;
 }
 
+// SHA3 (FEAT_SHA3): EOR3 / BCAX / RAX1 / XAR.
+bool probe_sha3(std::string* log) {
+  alignas(16) uint64_t a[2] = {0x1111111111111111ULL, 0xAAAAAAAAAAAAAAAAULL};
+  alignas(16) uint64_t b[2] = {0x2222222222222222ULL, 0x5555555555555555ULL};
+  alignas(16) uint64_t c[2] = {0x4444444444444444ULL, 0x0F0F0F0F0F0F0F0FULL};
+  uint64x2_t va = vld1q_u64(a), vb = vld1q_u64(b), vc = vld1q_u64(c);
+  alignas(16) uint64_t got[2];
+  auto rol1 = [](uint64_t x) { return (x << 1) | (x >> 63); };
+  auto ror = [](uint64_t x, int n) { return (x >> n) | (x << (64 - n)); };
+
+  vst1q_u64(got, veor3q_u64(va, vb, vc));
+  bool eor3_ok = got[0] == (a[0] ^ b[0] ^ c[0]) && got[1] == (a[1] ^ b[1] ^ c[1]);
+
+  vst1q_u64(got, vbcaxq_u64(va, vb, vc));
+  bool bcax_ok = got[0] == (a[0] ^ (b[0] & ~c[0])) &&
+                 got[1] == (a[1] ^ (b[1] & ~c[1]));
+
+  vst1q_u64(got, vrax1q_u64(va, vb));
+  bool rax1_ok = got[0] == (a[0] ^ rol1(b[0])) && got[1] == (a[1] ^ rol1(b[1]));
+
+  vst1q_u64(got, vxarq_u64(va, vb, 4));
+  bool xar_ok = got[0] == ror(a[0] ^ b[0], 4) && got[1] == ror(a[1] ^ b[1], 4);
+
+  bool all_ok = eor3_ok && bcax_ok && rax1_ok && xar_ok;
+  char buf[96];
+  snprintf(buf, sizeof(buf), "  SHA3 EOR3=%s BCAX=%s RAX1=%s XAR=%s\n",
+           eor3_ok ? "OK" : "FAIL", bcax_ok ? "OK" : "FAIL",
+           rax1_ok ? "OK" : "FAIL", xar_ok ? "OK" : "FAIL");
+  *log += buf;
+  return all_ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -395,6 +427,7 @@ Java_com_example_hellosha_MainActivity_probeShaCrypto(JNIEnv* env,
   all_ok &= probe_sha512h_h2(&report);
   all_ok &= probe_sha512su0(&report);
   all_ok &= probe_sha512su1(&report);
+  all_ok &= probe_sha3(&report);
 
   report += all_ok ? "All SHA crypto ops OK.\n"
                    : "One or more SHA crypto ops FAILED.\n";
