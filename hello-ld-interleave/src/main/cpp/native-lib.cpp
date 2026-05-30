@@ -56,6 +56,40 @@ bool test_st2_b(uint8_t* dst, const uint8_t* a16, const uint8_t* b16) {
   return true;
 }
 
+// ST3 .16B: write three vectors interleaved into 48 bytes of memory.
+bool test_st3_b(uint8_t* dst, const uint8_t* a16, const uint8_t* b16,
+                const uint8_t* c16) {
+  uint8x16x3_t v;
+  v.val[0] = vld1q_u8(a16);
+  v.val[1] = vld1q_u8(b16);
+  v.val[2] = vld1q_u8(c16);
+  vst3q_u8(dst, v);
+  for (int i = 0; i < 16; i++) {
+    if (dst[3 * i + 0] != a16[i]) return false;
+    if (dst[3 * i + 1] != b16[i]) return false;
+    if (dst[3 * i + 2] != c16[i]) return false;
+  }
+  return true;
+}
+
+// ST4 .16B: write four vectors interleaved into 64 bytes of memory (RGBA).
+bool test_st4_b(uint8_t* dst, const uint8_t* a16, const uint8_t* b16,
+                const uint8_t* c16, const uint8_t* d16) {
+  uint8x16x4_t v;
+  v.val[0] = vld1q_u8(a16);
+  v.val[1] = vld1q_u8(b16);
+  v.val[2] = vld1q_u8(c16);
+  v.val[3] = vld1q_u8(d16);
+  vst4q_u8(dst, v);
+  for (int i = 0; i < 16; i++) {
+    if (dst[4 * i + 0] != a16[i]) return false;
+    if (dst[4 * i + 1] != b16[i]) return false;
+    if (dst[4 * i + 2] != c16[i]) return false;
+    if (dst[4 * i + 3] != d16[i]) return false;
+  }
+  return true;
+}
+
 // LD3 .16B: read 48 interleaved bytes, get three vectors.
 bool test_ld3_b(const uint8_t* mem) {
   uint8x16x3_t v = vld3q_u8(mem);
@@ -102,10 +136,12 @@ Java_com_example_helloldinterleave_MainActivity_probeLdInterleave(
   alignas(16) uint32_t buf_s[8];
   for (int i = 0; i < 8; i++) buf_s[i] = 0x1000 + i;
 
-  alignas(16) uint8_t a16[16], b16[16], st_dst[32];
+  alignas(16) uint8_t a16[16], b16[16], c16[16], d16[16], st_dst[64];
   for (int i = 0; i < 16; i++) {
     a16[i] = 0xA0 + i;
     b16[i] = 0xB0 + i;
+    c16[i] = 0xC0 + i;
+    d16[i] = 0xD0 + i;
   }
 
   bool ld2b  = test_ld2_b(buf);
@@ -113,17 +149,19 @@ Java_com_example_helloldinterleave_MainActivity_probeLdInterleave(
   bool st2b  = test_st2_b(st_dst, a16, b16);
   bool ld3b  = test_ld3_b(buf);
   bool ld4b  = test_ld4_b(buf);
+  bool st3b  = test_st3_b(st_dst, a16, b16, c16);
+  bool st4b  = test_st4_b(st_dst, a16, b16, c16, d16);
   bool ld1x2 = test_ld1x2_b(buf);
 
   char msg[256];
   snprintf(msg, sizeof(msg),
            "NEON multi-struct probe:\n"
            "  LD2.16B=%s LD2.4S=%s ST2.16B=%s\n"
-           "  LD3.16B=%s LD4.16B=%s\n"
+           "  LD3.16B=%s LD4.16B=%s ST3.16B=%s ST4.16B=%s\n"
            "  LD1.16B x2=%s (contiguous, must not de-interleave)",
            ld2b  ? "OK" : "FAIL", ld2s  ? "OK" : "FAIL", st2b  ? "OK" : "FAIL",
-           ld3b  ? "OK" : "FAIL", ld4b  ? "OK" : "FAIL",
-           ld1x2 ? "OK" : "FAIL");
+           ld3b  ? "OK" : "FAIL", ld4b  ? "OK" : "FAIL", st3b ? "OK" : "FAIL",
+           st4b ? "OK" : "FAIL", ld1x2 ? "OK" : "FAIL");
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", msg);
   return env->NewStringUTF(msg);
 }
