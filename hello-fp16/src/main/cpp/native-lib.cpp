@@ -716,6 +716,39 @@ uint32_t fp16_fcmp_zero_flags(uint16_t a) {
   return static_cast<uint32_t>(nzcv >> 28);
 }
 
+// FCCMP h1, h2, #nzcv, cond (Armv8.2-FP16; encoding 0x1ee.0.4.. with ftype=11).
+// Condition-TRUE path: forces EQ true via `cmp xzr, xzr` (Z=1), so FCCMP
+// performs the FP16 compare of (a, b) and the resulting NZCV reflects it.
+uint32_t fp16_fccmp_flags_true(uint16_t a, uint16_t b) {
+  uint64_t nzcv;
+  asm volatile(
+      "ldr h1, [%[pa]]\n\t"
+      "ldr h2, [%[pb]]\n\t"
+      "cmp xzr, xzr\n\t"            // Z=1 -> EQ true
+      "fccmp h1, h2, #0, eq\n\t"
+      "mrs %[out], nzcv\n\t"
+      : [out] "=r"(nzcv)
+      : [pa] "r"(&a), [pb] "r"(&b)
+      : "v1", "v2", "cc");
+  return static_cast<uint32_t>(nzcv >> 28);
+}
+
+// FCCMP condition-FALSE path: `cmp xzr, xzr` makes NE false, so the #nzcv
+// immediate (0xb = N,C,V) is written to the flags unchanged (no FP compare).
+uint32_t fp16_fccmp_flags_false(uint16_t a, uint16_t b) {
+  uint64_t nzcv;
+  asm volatile(
+      "ldr h1, [%[pa]]\n\t"
+      "ldr h2, [%[pb]]\n\t"
+      "cmp xzr, xzr\n\t"            // Z=1 -> NE false
+      "fccmp h1, h2, #0xb, ne\n\t"  // NE false -> flags <- 0b1011
+      "mrs %[out], nzcv\n\t"
+      : [out] "=r"(nzcv)
+      : [pa] "r"(&a), [pb] "r"(&b)
+      : "v1", "v2", "cc");
+  return static_cast<uint32_t>(nzcv >> 28);
+}
+
 // ============================================================================
 // FP16 vector (NEON) probes — Plan §E2.
 //
@@ -1750,6 +1783,13 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
   total++; if (check(report, buf, "FCMP>0",  static_cast<uint16_t>(fp16_fcmp_zero_flags(h_1p5)), 0x2)) ok++;
   total++; if (check(report, buf, "FCMP<0",  static_cast<uint16_t>(fp16_fcmp_zero_flags(h_neg1p5)), 0x8)) ok++;
   total++; if (check(report, buf, "FCMP==0", static_cast<uint16_t>(fp16_fcmp_zero_flags(h_zero)), 0x6)) ok++;
+
+  // FCCMP Hn, Hm, #nzcv, cond (Armv8.2-FP16) — condition-TRUE path produces
+  // the same NZCV as a plain FP16 compare; condition-FALSE writes the imm.
+  total++; if (check(report, buf, "FCCMP gt",    static_cast<uint16_t>(fp16_fccmp_flags_true(h_3p5, h_1p5)), 0x2)) ok++;
+  total++; if (check(report, buf, "FCCMP lt",    static_cast<uint16_t>(fp16_fccmp_flags_true(h_1p5, h_3p5)), 0x8)) ok++;
+  total++; if (check(report, buf, "FCCMP eq",    static_cast<uint16_t>(fp16_fccmp_flags_true(h_1p5, h_1p5)), 0x6)) ok++;
+  total++; if (check(report, buf, "FCCMP false", static_cast<uint16_t>(fp16_fccmp_flags_false(h_1p5, h_1p5)), 0xb)) ok++;
 
   // -- FP16 vector NEON probes (Plan §E2).
   // Four-lane input vectors; per-lane reference computed via the same
