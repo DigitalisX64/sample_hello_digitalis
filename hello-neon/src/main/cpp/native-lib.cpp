@@ -21,6 +21,7 @@
 //       vsqrtq, vrecpeq, vrsqrteq, vabdq) -- subsumes hello-fp-vector
 //   15. Polynomial multiply (vmull_p8) -- PMULL via +crypto
 
+#include <arm_acle.h>
 #include <arm_neon.h>
 #include <android/log.h>
 #include <jni.h>
@@ -840,6 +841,33 @@ bool probe_recip_estimate() {
   return true;
 }
 
+//==================================================================
+// 17. CRC32C (Castagnoli) — ARMv8 CRC32C* ops via __crc32c* intrinsics.
+//==================================================================
+bool probe_crc32c() {
+  auto crc32c_ref = [](uint32_t crc, const uint8_t* data, int n) {
+    for (int i = 0; i < n; ++i) {
+      crc ^= data[i];
+      for (int k = 0; k < 8; ++k)
+        crc = (crc >> 1) ^ ((crc & 1) ? 0x82F63B78u : 0u);
+    }
+    return crc;
+  };
+  uint32_t acc = 0xFFFFFFFFu;
+  uint8_t b = 0xAB;
+  CHECK(__crc32cb(acc, b) == crc32c_ref(acc, &b, 1), "__crc32cb");
+  uint16_t h = 0xBEEF;
+  uint8_t hb[2] = {0xEF, 0xBE};
+  CHECK(__crc32ch(acc, h) == crc32c_ref(acc, hb, 2), "__crc32ch");
+  uint32_t w = 0xCAFEBABEu;
+  uint8_t wb[4] = {0xBE, 0xBA, 0xFE, 0xCA};
+  CHECK(__crc32cw(acc, w) == crc32c_ref(acc, wb, 4), "__crc32cw");
+  uint64_t d = 0x0123456789ABCDEFull;
+  uint8_t db[8] = {0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01};
+  CHECK(__crc32cd(acc, d) == crc32c_ref(acc, db, 8), "__crc32cd");
+  return true;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -868,6 +896,7 @@ Java_com_example_helloneon_MainActivity_probeNeon(JNIEnv* env,
       {"FP arith", probe_fp_arith},
       {"Polynomial mul", probe_polymul},
       {"Recip estimate", probe_recip_estimate},
+      {"CRC32C", probe_crc32c},
   };
 
   bool all_ok = true;
