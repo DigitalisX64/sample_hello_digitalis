@@ -239,6 +239,29 @@ bool probe_saturating() {
       CHECK(lsl[i] == sat(static_cast<int64_t>(acc[i]) - prod), "vqdmlsl_s16");
     }
   }
+  // vqdmull_s32 / vqdmlal_s32 / vqdmlsl_s32 — .2S->.2D doubling multiply with
+  // 64-bit saturation, including INT32_MIN^2 doubling and 64-bit accumulate
+  // overflow.
+  {
+    alignas(16) int32_t a[2] = {3, -2147483647 - 1};   // {3, INT32_MIN}
+    alignas(16) int32_t b[2] = {5, -2147483647 - 1};   // {5, INT32_MIN}
+    alignas(16) int64_t acc[2] = {100, 100};
+    alignas(16) int64_t pr[2], lal[2], lsl[2];
+    vst1q_s64(pr, vqdmull_s32(vld1_s32(a), vld1_s32(b)));
+    vst1q_s64(lal, vqdmlal_s32(vld1q_s64(acc), vld1_s32(a), vld1_s32(b)));
+    vst1q_s64(lsl, vqdmlsl_s32(vld1q_s64(acc), vld1_s32(a), vld1_s32(b)));
+    auto sat = [](__int128 v) -> int64_t {
+      __int128 mx = (static_cast<__int128>(1) << 63) - 1;
+      __int128 mn = -(static_cast<__int128>(1) << 63);
+      return static_cast<int64_t>(v > mx ? mx : (v < mn ? mn : v));
+    };
+    for (int i = 0; i < 2; ++i) {
+      int64_t prod = sat(2 * static_cast<__int128>(a[i]) * b[i]);
+      CHECK(pr[i] == prod, "vqdmull_s32");
+      CHECK(lal[i] == sat(static_cast<__int128>(acc[i]) + prod), "vqdmlal_s32");
+      CHECK(lsl[i] == sat(static_cast<__int128>(acc[i]) - prod), "vqdmlsl_s32");
+    }
+  }
   // vuqaddq_s8 — SUQADD: signed saturating accumulate of an unsigned addend.
   {
     alignas(16) int8_t a[16] = {100, -100, 10, 0, 127, -128, 50, -50,
