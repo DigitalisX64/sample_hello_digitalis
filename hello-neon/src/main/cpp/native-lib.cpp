@@ -773,6 +773,34 @@ bool probe_polymul() {
   return true;
 }
 
+//==================================================================
+// 16. Unsigned integer reciprocal / reciprocal-sqrt estimate (URECPE/URSQRTE)
+//==================================================================
+static uint32_t ref_urecpe(uint32_t a) {
+  if ((a & 0x80000000u) == 0) return 0xFFFFFFFFu;
+  int in = static_cast<int>((a >> 23) & 0x1FF);
+  int b = (1 << 19) / (in * 2 + 1);
+  return static_cast<uint32_t>((b + 1) / 2) << 23;
+}
+static uint32_t ref_ursqrte(uint32_t a) {
+  if ((a & 0xC0000000u) == 0) return 0xFFFFFFFFu;
+  int in = static_cast<int>((a >> 23) & 0x1FF);
+  int aa = (in < 256) ? (in * 2 + 1) : (((in >> 1) << 1) + 1) * 2;
+  int b = 512;
+  while (static_cast<int64_t>(aa) * (b + 1) * (b + 1) < (1 << 28)) b += 1;
+  return static_cast<uint32_t>((b + 1) / 2) << 23;
+}
+bool probe_recip_estimate() {
+  alignas(16) uint32_t in[4] = {0x40000000u, 0x80000000u, 0xC0000000u,
+                                0x7FFFFFFFu};
+  alignas(16) uint32_t got[4];
+  vst1q_u32(got, vrecpeq_u32(vld1q_u32(in)));
+  for (int i = 0; i < 4; ++i) CHECK(got[i] == ref_urecpe(in[i]), "vrecpeq_u32");
+  vst1q_u32(got, vrsqrteq_u32(vld1q_u32(in)));
+  for (int i = 0; i < 4; ++i) CHECK(got[i] == ref_ursqrte(in[i]), "vrsqrteq_u32");
+  return true;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -800,6 +828,7 @@ Java_com_example_helloneon_MainActivity_probeNeon(JNIEnv* env,
       {"Lane access", probe_lanes},
       {"FP arith", probe_fp_arith},
       {"Polynomial mul", probe_polymul},
+      {"Recip estimate", probe_recip_estimate},
   };
 
   bool all_ok = true;
