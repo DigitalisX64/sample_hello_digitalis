@@ -88,6 +88,22 @@ inline bool probe_sb() {
   return counter == 32;
 }
 
+// RNDR (Armv8.5-RNG): MRS Xt, RNDR returns a 64-bit random value and reports
+// availability via the carry flag (clear = a number was returned). Read twice
+// using the raw S3_3_C2_C4_0 encoding; success on both reads plus two distinct
+// draws is the OK signal (a stubbed/zero implementation would fail one or both).
+inline bool probe_rndr() {
+  uint64_t a = 0, b = 0;
+  uint32_t ok_a = 0, ok_b = 0;
+  __asm__ __volatile__("mrs %0, s3_3_c2_c4_0\n\t"  // RNDR -> a
+                       "cset %w1, cc"               // ok_a = (carry clear)
+                       : "=r"(a), "=r"(ok_a)::"cc");
+  __asm__ __volatile__("mrs %0, s3_3_c2_c4_0\n\t"  // RNDR -> b
+                       "cset %w1, cc"
+                       : "=r"(b), "=r"(ok_b)::"cc");
+  return ok_a && ok_b && (a != b);
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -116,6 +132,7 @@ Java_com_example_hellobarriers_MainActivity_probeBarriers(JNIEnv* env,
       {"ISB", probe_isb},
       {"CLREX", probe_clrex},
       {"SB", probe_sb},
+      {"RNDR", probe_rndr},
   };
 
   int total = 0;
