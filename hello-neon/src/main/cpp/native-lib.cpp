@@ -753,6 +753,23 @@ bool probe_polymul() {
     }
     if (got[i] != want) return false;
   }
+  // vmull_high_p8 — PMULL2: same poly8 multiply on the upper 8 bytes of a
+  // 16-byte vector.
+  alignas(16) uint8_t a16[16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                                 0x53, 0xff, 0x01, 0x80, 0x07, 0xaa, 0xcc, 0x11};
+  alignas(16) uint8_t b16[16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                                 0xca, 0x80, 0x02, 0x80, 0x07, 0x55, 0x33, 0x10};
+  poly16x8_t rh = vmull_high_p8(vreinterpretq_p8_u8(vld1q_u8(a16)),
+                                vreinterpretq_p8_u8(vld1q_u8(b16)));
+  alignas(16) uint16_t goth[8];
+  vst1q_u16(goth, vreinterpretq_u16_p16(rh));
+  for (int i = 0; i < 8; ++i) {
+    uint16_t want = 0;
+    for (int j = 0; j < 8; ++j) {
+      if (b16[i + 8] & (1u << j)) want ^= static_cast<uint16_t>(a16[i + 8]) << j;
+    }
+    if (goth[i] != want) return false;
+  }
   return true;
 }
 
