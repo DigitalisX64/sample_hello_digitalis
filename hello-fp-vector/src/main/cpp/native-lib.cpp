@@ -305,6 +305,34 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
     (void)vf; (void)vd;
   }
 
+  // FRINTTS (FEAT_FRINTTS): round to 32/64-bit integral FP, saturating
+  // out-of-range to the most-negative value. Scalar + vector forms.
+  {
+    float s_in = 3.7f, s_out = 0.0f;
+    __asm__ __volatile__("frint32z %s0, %s1" : "=w"(s_out) : "w"(s_in));
+    bool s_ok = (s_out == 3.0f);
+    float s_big = 3.0e9f, s_sat = 0.0f;  // > INT32_MAX -> INT32_MIN
+    __asm__ __volatile__("frint32z %s0, %s1" : "=w"(s_sat) : "w"(s_big));
+    bool s_sat_ok = (s_sat == -2147483648.0f);
+
+    double d_in = -5.9, d_out = 0.0;
+    __asm__ __volatile__("frint64z %d0, %d1" : "=w"(d_out) : "w"(d_in));
+    bool d_ok = (d_out == -5.0);
+
+    float32x4_t vin = {3.7f, -2.2f, 3.0e9f, -1.5f};
+    float32x4_t vout;
+    __asm__ __volatile__("frint32z %0.4s, %1.4s" : "=w"(vout) : "w"(vin));
+    bool v_ok = vout[0] == 3.0f && vout[1] == -2.0f &&
+                vout[2] == -2147483648.0f && vout[3] == -1.0f;
+
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+             "  FRINTTS scalar32=%s sat32=%s scalar64=%s vec32=%s\n",
+             s_ok ? "OK" : "FAIL", s_sat_ok ? "OK" : "FAIL",
+             d_ok ? "OK" : "FAIL", v_ok ? "OK" : "FAIL");
+    report += buf;
+  }
+
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", report.c_str());
   return env->NewStringUTF(report.c_str());
 }
