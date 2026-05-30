@@ -349,8 +349,16 @@ bool probe_i8mm(std::string& report, char (&buf)[256]) {
   RUN_I8MM(0x4E82AC20);  // usmmla v0.4s, v1.16b, v2.16b
   ok &= (out[0] == 0x0000006f && out[1] == 0x000000de &&
          out[2] == 0x00000101 && out[3] == 0x00000202);
+  RUN_I8MM(0x4FA2F020);  // usdot v0.4s, v1.16b, v2.4b[1]
+  ok &= (static_cast<uint32_t>(out[0]) == 0xffffff77u &&
+         static_cast<uint32_t>(out[1]) == 0xffffffe6u &&
+         static_cast<uint32_t>(out[2]) == 0xfffffefbu &&
+         static_cast<uint32_t>(out[3]) == 0xfffffffcu);
+  RUN_I8MM(0x4F02F820);  // sudot v0.4s, v1.16b, v2.4b[2]
+  ok &= (static_cast<uint32_t>(out[0]) == 0xffffff12u &&
+         out[1] == 0x00000034 && out[2] == 0x0000000a && out[3] == 0x00000008);
 #undef RUN_I8MM
-  snprintf(buf, sizeof(buf), "  I8MM USDOT/SMMLA/UMMLA/USMMLA: %s\n",
+  snprintf(buf, sizeof(buf), "  I8MM USDOT/SMMLA/UMMLA/USMMLA/USDOTe/SUDOTe: %s\n",
            ok ? "OK" : "FAIL");
   report += buf;
   return ok;
