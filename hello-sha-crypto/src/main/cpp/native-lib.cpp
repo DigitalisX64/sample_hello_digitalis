@@ -409,6 +409,33 @@ bool probe_sha3(std::string* log) {
   return all_ok;
 }
 
+// SM4 (FEAT_SM4): SM4E (4 encryption rounds) and SM4EKEY (4 key-expansion
+// steps). Validated with the single-instruction steps of the GB/T 32907
+// standard test vector (whose full flow yields ciphertext 681edf34...).
+bool probe_sm4(std::string* log) {
+  // SM4EKEY: K^FK seed + CK0..3 -> round keys 0..3.
+  alignas(16) uint32_t ek_n[4] = {0xa292ffa1u, 0xdf01febfu, 0x99a12b0fu, 0xc42410ccu};
+  alignas(16) uint32_t ek_m[4] = {0x00070e15u, 0x1c232a31u, 0x383f464du, 0x545b6269u};
+  alignas(16) uint32_t want_rk[4] = {0xf12186f9u, 0x41662b61u, 0x5a6ab19au, 0x7ba92077u};
+  alignas(16) uint32_t got[4];
+  vst1q_u32(got, vsm4ekeyq_u32(vld1q_u32(ek_n), vld1q_u32(ek_m)));
+  bool ekey_ok = got[0] == want_rk[0] && got[1] == want_rk[1] &&
+                 got[2] == want_rk[2] && got[3] == want_rk[3];
+
+  // SM4E: plaintext state + round keys 0..3 -> state after 4 rounds.
+  alignas(16) uint32_t e_d[4] = {0x01234567u, 0x89abcdefu, 0xfedcba98u, 0x76543210u};
+  alignas(16) uint32_t want_e[4] = {0x27fad345u, 0xa18b4cb2u, 0x11c1e22au, 0xcc13e2eeu};
+  vst1q_u32(got, vsm4eq_u32(vld1q_u32(e_d), vld1q_u32(want_rk)));
+  bool e_ok = got[0] == want_e[0] && got[1] == want_e[1] &&
+              got[2] == want_e[2] && got[3] == want_e[3];
+
+  char buf[96];
+  snprintf(buf, sizeof(buf), "  SM4 SM4EKEY=%s SM4E=%s\n",
+           ekey_ok ? "OK" : "FAIL", e_ok ? "OK" : "FAIL");
+  *log += buf;
+  return ekey_ok && e_ok;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -428,6 +455,7 @@ Java_com_example_hellosha_MainActivity_probeShaCrypto(JNIEnv* env,
   all_ok &= probe_sha512su0(&report);
   all_ok &= probe_sha512su1(&report);
   all_ok &= probe_sha3(&report);
+  all_ok &= probe_sm4(&report);
 
   report += all_ok ? "All SHA crypto ops OK.\n"
                    : "One or more SHA crypto ops FAILED.\n";
