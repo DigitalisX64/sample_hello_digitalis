@@ -367,6 +367,22 @@ bool probe_shifts() {
     }
     if (!array_eq(got, want)) return false;
   }
+  // vshll_n — shift left long by element size (SHLL): each lane widened and
+  // shifted left by the source element width, landing in the high half.
+  {
+    alignas(16) uint8_t a[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+    alignas(16) uint16_t got[8];
+    vst1q_u16(got, vshll_n_u8(vld1_u8(a), 8));
+    for (int i = 0; i < 8; ++i) {
+      CHECK(got[i] == static_cast<uint16_t>(a[i]) << 8, "vshll_n_u8");
+    }
+    alignas(16) uint16_t b[4] = {0x0001, 0x0002, 0x0003, 0x0004};
+    alignas(16) uint32_t got32[4];
+    vst1q_u32(got32, vshll_n_u16(vld1_u16(b), 16));
+    for (int i = 0; i < 4; ++i) {
+      CHECK(got32[i] == static_cast<uint32_t>(b[i]) << 16, "vshll_n_u16");
+    }
+  }
   return true;
 }
 
