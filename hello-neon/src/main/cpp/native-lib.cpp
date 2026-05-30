@@ -201,6 +201,47 @@ bool probe_saturating() {
       CHECK(got[i] == want, "vqsubq_s16");
     }
   }
+  // vqdmull_s16 — signed doubling widening multiply: 4x int16 -> 4x int32,
+  // result = sat(2 * a * b). INT16_MIN squared doubles to 2^31 -> INT32_MAX.
+  {
+    alignas(16) int16_t a[4] = {3, 5, -32768, 7};
+    alignas(16) int16_t b[4] = {4, 6, -32768, 2};
+    alignas(16) int32_t got[4];
+    vst1q_s32(got, vqdmull_s16(vld1_s16(a), vld1_s16(b)));
+    for (int i = 0; i < 4; ++i) {
+      int64_t prod = 2LL * a[i] * b[i];
+      int32_t want = prod > 2147483647LL    ? 2147483647
+                     : prod < -2147483648LL ? (-2147483647 - 1)
+                                            : static_cast<int32_t>(prod);
+      CHECK(got[i] == want, "vqdmull_s16");
+    }
+  }
+  // vuqaddq_s8 — SUQADD: signed saturating accumulate of an unsigned addend.
+  {
+    alignas(16) int8_t a[16] = {100, -100, 10, 0, 127, -128, 50, -50,
+                                1, 2, 3, -1, -2, -3, 64, -64};
+    alignas(16) uint8_t b[16] = {50, 30, 5, 0, 10, 200, 100, 20,
+                                 5, 255, 2, 1, 128, 3, 70, 16};
+    alignas(16) int8_t got[16];
+    vst1q_s8(got, vuqaddq_s8(vld1q_s8(a), vld1q_u8(b)));
+    for (int i = 0; i < 16; ++i) {
+      int32_t sum = static_cast<int32_t>(a[i]) + b[i];
+      int8_t want = sum > 127 ? 127 : sum < -128 ? -128 : static_cast<int8_t>(sum);
+      CHECK(got[i] == want, "vuqaddq_s8");
+    }
+  }
+  // vsqaddq_u16 — USQADD: unsigned saturating accumulate of a signed addend.
+  {
+    alignas(16) uint16_t a[8] = {100, 0, 65535, 32768, 5, 10, 60000, 1};
+    alignas(16) int16_t b[8] = {50, -10, 1, -1, -10, 32767, 10000, -1};
+    alignas(16) uint16_t got[8];
+    vst1q_u16(got, vsqaddq_u16(vld1q_u16(a), vld1q_s16(b)));
+    for (int i = 0; i < 8; ++i) {
+      int32_t sum = static_cast<int32_t>(a[i]) + b[i];
+      uint16_t want = sum < 0 ? 0 : sum > 65535 ? 65535 : static_cast<uint16_t>(sum);
+      CHECK(got[i] == want, "vsqaddq_u16");
+    }
+  }
   return true;
 }
 
