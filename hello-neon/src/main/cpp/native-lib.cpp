@@ -216,6 +216,29 @@ bool probe_saturating() {
       CHECK(got[i] == want, "vqdmull_s16");
     }
   }
+  // vqdmlal_s16 / vqdmlsl_s16 — saturating doubling multiply-accumulate/subtract:
+  // acc +/- sat(2*b*c), with the final accumulate also 32-bit saturating.
+  {
+    alignas(16) int32_t acc[4] = {100, -50, 100, -2147483640};
+    alignas(16) int16_t b[4] = {3, 5, -32768, 7};
+    alignas(16) int16_t c[4] = {4, 6, -32768, 2};
+    alignas(16) int32_t lal[4], lsl[4];
+    vst1q_s32(lal, vqdmlal_s16(vld1q_s32(acc), vld1_s16(b), vld1_s16(c)));
+    vst1q_s32(lsl, vqdmlsl_s16(vld1q_s32(acc), vld1_s16(b), vld1_s16(c)));
+    for (int i = 0; i < 4; ++i) {
+      int64_t p = 2LL * b[i] * c[i];
+      int32_t prod = p > 2147483647LL    ? 2147483647
+                     : p < -2147483648LL ? (-2147483647 - 1)
+                                         : static_cast<int32_t>(p);
+      auto sat = [](int64_t v) -> int32_t {
+        return v > 2147483647LL    ? 2147483647
+               : v < -2147483648LL ? (-2147483647 - 1)
+                                   : static_cast<int32_t>(v);
+      };
+      CHECK(lal[i] == sat(static_cast<int64_t>(acc[i]) + prod), "vqdmlal_s16");
+      CHECK(lsl[i] == sat(static_cast<int64_t>(acc[i]) - prod), "vqdmlsl_s16");
+    }
+  }
   // vuqaddq_s8 — SUQADD: signed saturating accumulate of an unsigned addend.
   {
     alignas(16) int8_t a[16] = {100, -100, 10, 0, 127, -128, 50, -50,
