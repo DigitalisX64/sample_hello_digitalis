@@ -310,6 +310,30 @@ bool probe_saturating() {
       CHECK(got[i] == want, "vsqaddq_u16");
     }
   }
+  // .4S forms (32-bit lanes): SUQADD signed-accumulate / USQADD unsigned-
+  // accumulate, exercising both saturation directions.
+  {
+    alignas(16) int32_t a[4] = {0x7FFFFFF0, INT32_MIN, 5, -5};
+    alignas(16) uint32_t b[4] = {0x40, 1, 0xFFFFFFF0u, 0x7FFFFFFF};
+    alignas(16) int32_t got[4];
+    vst1q_s32(got, vuqaddq_s32(vld1q_s32(a), vld1q_u32(b)));
+    for (int i = 0; i < 4; ++i) {
+      int64_t sum = static_cast<int64_t>(a[i]) + b[i];
+      int32_t want = sum > INT32_MAX ? INT32_MAX
+                     : sum < INT32_MIN ? INT32_MIN : static_cast<int32_t>(sum);
+      CHECK(got[i] == want, "vuqaddq_s32");
+    }
+    alignas(16) uint32_t c[4] = {100u, 0u, 0xFFFFFFF0u, 0x80000000u};
+    alignas(16) int32_t d[4] = {50, -10, 0x7FFFFFFF, -1};
+    alignas(16) uint32_t gotu[4];
+    vst1q_u32(gotu, vsqaddq_u32(vld1q_u32(c), vld1q_s32(d)));
+    for (int i = 0; i < 4; ++i) {
+      int64_t sum = static_cast<int64_t>(c[i]) + d[i];
+      uint32_t want = sum < 0 ? 0u
+                      : sum > 0xFFFFFFFFLL ? 0xFFFFFFFFu : static_cast<uint32_t>(sum);
+      CHECK(gotu[i] == want, "vsqaddq_u32");
+    }
+  }
   // .2D->.2S saturating extracts (64->32): SQXTN (s64->s32), UQXTN (u64->u32),
   // SQXTUN (s64->u32). Exercise in-range, overflow, and negative lanes.
   {
