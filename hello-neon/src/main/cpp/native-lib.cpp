@@ -590,6 +590,12 @@ bool probe_bitmanip() {
     vst1q_u8(got, vrbitq_u8(vld1q_u8(a)));
     if (!array_eq(got, want)) return false;
   }
+  // Scalar REV32 Xd: byte-reverse each 32-bit word of a 64-bit register.
+  {
+    uint64_t in = 0x1122334455667788ULL, out = 0;
+    asm("rev32 %0, %1" : "=r"(out) : "r"(in));
+    CHECK(out == 0x4433221188776655ULL, "rev32_x");
+  }
   return true;
 }
 
