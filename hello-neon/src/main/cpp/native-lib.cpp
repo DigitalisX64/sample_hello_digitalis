@@ -167,6 +167,27 @@ bool probe_int_arith() {
     vst1q_u64(got, vaddq_u64(vld1q_u64(a), vld1q_u64(b)));
     if (!array_eq(got, want)) return false;
   }
+  // ADDHN/SUBHN/RADDHN/RSUBHN .2S<-.2D: high 32 bits of the 64-bit add/sub
+  // (R-variants add 2^31 first). Exercises the 64->32 narrowing high-half path.
+  {
+    uint64_t a[2] = {0x123456789ABCDEF0ULL, 0xFFFFFFFF80000000ULL};
+    uint64_t b[2] = {0x0000000180000000ULL, 0x0000000100000000ULL};
+    uint32_t got[2];
+    vst1_u32(got, vaddhn_u64(vld1q_u64(a), vld1q_u64(b)));
+    for (int i = 0; i < 2; ++i)
+      CHECK(got[i] == static_cast<uint32_t>((a[i] + b[i]) >> 32), "vaddhn_u64");
+    vst1_u32(got, vsubhn_u64(vld1q_u64(a), vld1q_u64(b)));
+    for (int i = 0; i < 2; ++i)
+      CHECK(got[i] == static_cast<uint32_t>((a[i] - b[i]) >> 32), "vsubhn_u64");
+    vst1_u32(got, vraddhn_u64(vld1q_u64(a), vld1q_u64(b)));
+    for (int i = 0; i < 2; ++i)
+      CHECK(got[i] == static_cast<uint32_t>((a[i] + b[i] + 0x80000000ULL) >> 32),
+            "vraddhn_u64");
+    vst1_u32(got, vrsubhn_u64(vld1q_u64(a), vld1q_u64(b)));
+    for (int i = 0; i < 2; ++i)
+      CHECK(got[i] == static_cast<uint32_t>((a[i] - b[i] + 0x80000000ULL) >> 32),
+            "vrsubhn_u64");
+  }
   return true;
 }
 
