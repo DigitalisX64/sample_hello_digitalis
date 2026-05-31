@@ -444,6 +444,26 @@ bool probe_logical() {
   for (int i = 0; i < 4; ++i) want[i] = ~a[i];
   vst1q_u32(got, vmvnq_u32(vld1q_u32(a)));
   if (!array_eq(got, want)) return false;
+
+  // ORR/BIC (vector, immediate) are read-modify-write — distinct from the
+  // register forms above and from MOVI/MVNI (replace). The immediate encodings
+  // are forced via inline asm; the compiler does not reliably emit them.
+  {
+    alignas(16) uint32_t in[4] = {0xaaaaaaaau, 0x55555555u, 0xffff0000u,
+                                  0x0000ffffu};
+    alignas(16) uint32_t out[4];
+    uint32x4_t v = vld1q_u32(in);
+    asm("orr %0.4s, #0x0f" : "+w"(v));  // per 32-bit lane |= 0x0000000F
+    vst1q_u32(out, v);
+    for (int i = 0; i < 4; ++i)
+      CHECK(out[i] == (in[i] | 0x0000000Fu), "orr_imm_4s");
+
+    v = vld1q_u32(in);
+    asm("bic %0.4s, #0x0f" : "+w"(v));  // per 32-bit lane &= ~0x0000000F
+    vst1q_u32(out, v);
+    for (int i = 0; i < 4; ++i)
+      CHECK(out[i] == (in[i] & ~0x0000000Fu), "bic_imm_4s");
+  }
   return true;
 }
 
