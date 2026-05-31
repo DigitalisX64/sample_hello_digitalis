@@ -443,11 +443,25 @@ bool RunLibnativehelperProxyTest(JNIEnv* env, std::string* report) {
   bool non_null = created != nullptr;
   jsize len = non_null ? env->GetStringLength(created) : -1;
   bool len_ok = len == 5;
-  bool all_ok = non_null && len_ok;
 
-  char buf[160];
-  std::snprintf(buf, sizeof(buf), "[LIBNH-PROXY:%s non_null=%d len=%d]",
-                all_ok ? "PASS" : "FAIL", non_null ? 1 : 0, len);
+  // Also exercise jniRegisterNativeMethods (FindClass + RegisterNatives). With
+  // numMethods=0 it registers nothing and returns JNI_OK, so it's a side-effect-
+  // free way to drive the full trampoline path. A surviving DoBadTrampoline
+  // would abort here; a non-OK return would mean FindClass failed.
+  using RegisterFn = jint (*)(JNIEnv*, const char*, const JNINativeMethod*, jint);
+  auto register_natives =
+      reinterpret_cast<RegisterFn>(dlsym(handle, "jniRegisterNativeMethods"));
+  bool reg_ok = false;
+  if (register_natives != nullptr) {
+    jint rc = register_natives(env, "com/example/hellojni/HelloJni", nullptr, 0);
+    reg_ok = rc == JNI_OK;
+  }
+
+  bool all_ok = non_null && len_ok && reg_ok;
+
+  char buf[200];
+  std::snprintf(buf, sizeof(buf), "[LIBNH-PROXY:%s non_null=%d len=%d reg_natives=%d]",
+                all_ok ? "PASS" : "FAIL", non_null ? 1 : 0, len, reg_ok ? 1 : 0);
   *report = buf;
   __android_log_print(all_ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, kLogTag,
                       "%s", buf);
