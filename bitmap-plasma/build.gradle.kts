@@ -26,5 +26,5 @@ android {
     }
 }
 dependencies {
-    androidTestImplementation(project(":screenshot-test-lib"))
+    androidTestImplementation(project(":status-test-lib"))
 }

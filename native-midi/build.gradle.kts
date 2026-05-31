@@ -27,5 +27,5 @@ android {
 }
 dependencies {
     implementation(libs.androidx.appcompat)
-    androidTestImplementation(project(":screenshot-test-lib"))
+    androidTestImplementation(project(":status-test-lib"))
 }

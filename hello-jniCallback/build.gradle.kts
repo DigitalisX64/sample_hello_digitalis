@@ -24,5 +24,5 @@ android {
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
-    androidTestImplementation(project(":screenshot-test-lib"))
+    androidTestImplementation(project(":status-test-lib"))
 }

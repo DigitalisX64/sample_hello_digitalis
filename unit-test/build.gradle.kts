@@ -34,5 +34,5 @@ dependencies {
     androidTestImplementation(libs.test.ext.junit)
     androidTestImplementation(libs.test.ext.junit.gtest)
     androidTestImplementation(libs.test.espresso.core)
-    androidTestImplementation(project(":screenshot-test-lib"))
+    androidTestImplementation(project(":status-test-lib"))
 }

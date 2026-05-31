@@ -40,5 +40,5 @@ dependencies {
     implementation(libs.compose.material3)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
-    androidTestImplementation(project(":screenshot-test-lib"))
+    androidTestImplementation(project(":status-test-lib"))
 }
