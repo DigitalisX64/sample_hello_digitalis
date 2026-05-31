@@ -353,6 +353,26 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
     report += buf;
   }
 
+  // FCVTL / FCVTN (FP16 <-> FP32). Narrow (FCVTN) then widen back (FCVTL):
+  // exactly-representable values round-trip; an inexact value narrows with
+  // round-to-nearest-even (1.1f -> 0x3C66).
+  {
+    float32x4_t f = {1.0f, 2.0f, -1.5f, 0.5f};
+    float16x4_t h = vcvt_f16_f32(f);     // FCVTN
+    float32x4_t back = vcvt_f32_f16(h);  // FCVTL
+    bool exact_ok = back[0] == 1.0f && back[1] == 2.0f && back[2] == -1.5f &&
+                    back[3] == 0.5f;
+    float32x4_t g = {1.1f, 0.0f, 0.0f, 0.0f};
+    float16x4_t gh = vcvt_f16_f32(g);
+    uint16_t hb;
+    __builtin_memcpy(&hb, &gh, 2);
+    bool rne_ok = hb == 0x3C66;
+    char buf[96];
+    snprintf(buf, sizeof(buf), "  FCVT FP16 roundtrip=%s rne=%s\n",
+             exact_ok ? "OK" : "FAIL", rne_ok ? "OK" : "FAIL");
+    report += buf;
+  }
+
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", report.c_str());
   return env->NewStringUTF(report.c_str());
 }
