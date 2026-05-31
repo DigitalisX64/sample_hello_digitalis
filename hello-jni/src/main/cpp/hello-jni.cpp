@@ -17,6 +17,7 @@
 #include <jni.h>
 
 #include <android/log.h>
+#include <dlfcn.h>
 #include <fenv.h>
 #include <pthread.h>
 #include <signal.h>
@@ -410,6 +411,49 @@ bool RunSigusr1StressTest(std::string* report) {
   return all_ok;
 }
 
+// Exercises the libnativehelper proxy path. The legacy jni* helper exports
+// (jniCreateString here) are marked DoBadTrampoline by the auto-generated
+// trampoline table, so before Digitalis covered them, calling one through the
+// bridge aborted with LOG_ALWAYS_FATAL("Bad 'jniCreateString' call"). We reach
+// the symbol via dlsym (it isn't in the NDK sysroot to link against) so the
+// call routes through the proxy trampoline; a valid, correct-length jstring
+// proves the Digitalis-side custom trampoline (JNIEnv translation via
+// ToHostJNIEnv) is installed and forwarding to host libnativehelper.
+bool RunLibnativehelperProxyTest(JNIEnv* env, std::string* report) {
+  void* handle = dlopen("libnativehelper.so", RTLD_NOW);
+  if (handle == nullptr) {
+    *report = "[LIBNH-PROXY:FAIL dlopen]";
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", report->c_str());
+    return false;
+  }
+  using CreateStringFn = jstring (*)(JNIEnv*, const jchar*, jsize);
+  auto create_string =
+      reinterpret_cast<CreateStringFn>(dlsym(handle, "jniCreateString"));
+  if (create_string == nullptr) {
+    *report = "[LIBNH-PROXY:FAIL dlsym jniCreateString]";
+    __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", report->c_str());
+    return false;
+  }
+
+  // UTF-16 "hello"; jchar is uint16_t.
+  static const jchar kHello[] = {0x0068, 0x0065, 0x006c, 0x006c, 0x006f};
+  // If jniCreateString were still DoBadTrampoline this call aborts the process
+  // (SIGABRT), which test-samples.sh flags as a crash.
+  jstring created = create_string(env, kHello, 5);
+  bool non_null = created != nullptr;
+  jsize len = non_null ? env->GetStringLength(created) : -1;
+  bool len_ok = len == 5;
+  bool all_ok = non_null && len_ok;
+
+  char buf[160];
+  std::snprintf(buf, sizeof(buf), "[LIBNH-PROXY:%s non_null=%d len=%d]",
+                all_ok ? "PASS" : "FAIL", non_null ? 1 : 0, len);
+  *report = buf;
+  __android_log_print(all_ok ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, kLogTag,
+                      "%s", buf);
+  return all_ok;
+}
+
 }  // namespace
 
 jstring StringFromJni(JNIEnv* env, jobject) {
@@ -417,6 +461,8 @@ jstring StringFromJni(JNIEnv* env, jobject) {
   RunSigsegvRecoveryTest(&report);
   std::string stress_report;
   RunSigusr1StressTest(&stress_report);
+  std::string libnh_report;
+  RunLibnativehelperProxyTest(env, &libnh_report);
   // Keep the user-visible text identical to the legacy sample so the
   // existing screenshot reference still matches; the recovery report is
   // visible in logcat under tag "hello-jni".
