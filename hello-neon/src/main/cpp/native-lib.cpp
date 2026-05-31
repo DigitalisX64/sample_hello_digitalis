@@ -289,6 +289,27 @@ bool probe_saturating() {
       CHECK(got[i] == want, "vsqaddq_u16");
     }
   }
+  // .2D->.2S saturating extracts (64->32): SQXTN (s64->s32), UQXTN (u64->u32),
+  // SQXTUN (s64->u32). Exercise in-range, overflow, and negative lanes.
+  {
+    int64_t s[2] = {0x100000000LL, -5};  // +overflow / negative
+    int32_t sn[2];
+    vst1_s32(sn, vqmovn_s64(vld1q_s64(s)));
+    CHECK(sn[0] == 0x7FFFFFFF, "vqmovn_s64_pos");
+    CHECK(sn[1] == -5, "vqmovn_s64_neg");
+
+    uint64_t u[2] = {0x100000000ULL, 0xABCDu};  // overflow / in-range
+    uint32_t un[2];
+    vst1_u32(un, vqmovn_u64(vld1q_u64(u)));
+    CHECK(un[0] == 0xFFFFFFFFu, "vqmovn_u64_ovf");
+    CHECK(un[1] == 0xABCDu, "vqmovn_u64_inrange");
+
+    int64_t su[2] = {-1, 0x1FFFFFFFFLL};  // negative -> 0 / overflow -> UINT32_MAX
+    uint32_t sun[2];
+    vst1_u32(sun, vqmovun_s64(vld1q_s64(su)));
+    CHECK(sun[0] == 0u, "vqmovun_s64_neg");
+    CHECK(sun[1] == 0xFFFFFFFFu, "vqmovun_s64_ovf");
+  }
   return true;
 }
 
