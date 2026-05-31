@@ -1,4 +1,4 @@
-// hello-bf16: integration-level probe for Armv8.6-BF16 (§H2 / §M1).
+// Integration-level probe for Armv8.6-BF16.
 //
 // Probes every BFloat16 encoding implemented by the interpreter:
 //

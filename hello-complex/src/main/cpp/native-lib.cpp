@@ -1,6 +1,6 @@
-// hello-complex: integration-level probe for Armv8.3-FCMA (§H1 / §M1).
+// Integration-level probe for Armv8.3-FCMA.
 //
-// Probes every FCMA encoding the §H1 decoder + interpreter implements.
+// Probes every FCMA encoding the decoder + interpreter implements.
 // FCADD has two rotations (#90 / #270); FCMLA has four
 // rotations (#0 / #90 / #180 / #270).  Each is exercised at .4S vector,
 // .2D vector, and .2S half-vector widths where the encoding allows.
@@ -974,7 +974,7 @@ bool probe_frinta_h(std::string& report, char (&buf)[256],
   return ok;
 }
 
-// Vector FP unary (FABS/FNEG/FRINT*) probes — Plan §C4 vector form.  Each
+// Vector FP unary (FABS/FNEG/FRINT*) probes — vector form. Each
 // probe loads V1 from memory as a Q register, runs one of the 9 FP unary
 // vector mnemonics, stores V0, and lane-by-lane compares with `want`.  FP32
 // vectors carry 4 lanes (Q=1, .4S); FP64 vectors carry 2 lanes (Q=1, .2D).
@@ -1801,7 +1801,7 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
   run(probe_fcmla_2d(report, buf, 90));
   run(probe_fcmla_2d(report, buf, 180));
   run(probe_fcmla_2d(report, buf, 270));
-  // FCMLA by element (Armv8.3-FCMA idx) — §H1.
+ // FCMLA by element (Armv8.3-FCMA idx).
   // All 4 rotations × 2 indices = 8 probes; covers Vm broadcast & rot table.
   run(probe_fcmla_4s_idx(report, buf, 0,   0));
   run(probe_fcmla_4s_idx(report, buf, 90,  0));
@@ -1853,7 +1853,7 @@ Java_com_example_hellocomplex_MainActivity_probeComplex(JNIEnv* env,
                        static_cast<double>(tc.want)));
   for (const auto& tc : frinta_cases) run(probe_frinta_h(report, buf, tc.in, tc.want));
 
-  // FABS/FNEG/FRINT* vector probes (Plan §C4 vector form).  Each input
+ // FABS/FNEG/FRINT* vector probes (vector form). Each input
   // vector mixes positive, negative, sub-half, and tie cases so a single
   // probe per opcode confirms all-lane behavior.
   {

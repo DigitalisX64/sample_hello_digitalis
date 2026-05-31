@@ -1,9 +1,9 @@
-// hello-pac-ret: integration-level probes for Armv8.3-PAuth (§F1, §F2).
+// Integration-level probes for Armv8.3-PAuth.
 //
 // Digitalis runs above the host kernel and has no PAC backing -- the
 // translator decodes every PAuth instruction as a HINT-style no-op and the
 // branch-with-PAC family (BRAA/BLRAA/RETAA et al.) decodes to a plain
-// indirect branch (handoffs -30 and -32).  This sample probes that surface:
+// indirect branch. This sample probes that surface:
 // if any opcode below routes to Undefined() the process SIGILLs before the
 // summary line is logged.
 //
@@ -17,7 +17,7 @@
 //   XPACI / XPACD               -- explicit strip (identity on Digitalis)
 //   PACIASP / AUTIASP (HINTs)   -- via __builtin asm for explicit coverage
 //   PACIBSP / AUTIBSP (HINTs)   -- b-key prologue/epilogue
-//   BLRAA / BLRAB / BLRAAZ      -- §F2: branch-with-link authenticated, key A/B
+// BLRAA / BLRAB / BLRAAZ -- branch-with-link authenticated, key A/B
 //
 // All Pac/Aut on a register are *identity* on Digitalis (we never insert PAC
 // bits, so stripping is the identity too).  The probes therefore check that
@@ -154,7 +154,7 @@ inline bool probe_xpaclri() {
   return lr_before == lr_after;
 }
 
-// §F2: BLRAA / BLRAB -- branch-with-link to a register, authenticated with
+// BLRAA / BLRAB -- branch-with-link to a register, authenticated with
 // key A / key B and a modifier register.  On Digitalis these decode to
 // plain BLR.  The probe BLRAA's to a local label that
 // increments the counter and returns.
@@ -194,7 +194,7 @@ inline bool probe_blrab() {
   return counter == 1;
 }
 
-// §F2: BLRAAZ / BLRABZ -- branch-with-PAC using XZR as the modifier.
+// BLRAAZ / BLRABZ -- branch-with-PAC using XZR as the modifier.
 // Decoder case 0b0001 with op3=000010 (key A) / 000011 (key B).
 inline bool probe_blraaz() {
   uint64_t counter = 0;
@@ -261,13 +261,13 @@ Java_com_example_hellopacret_MainActivity_probe(JNIEnv* env,
     bool (*fn)();
   };
   const Probe probes[] = {
-      // HINT-form (§F1)
+ // HINT-form
       {"PACIASP/AUTIASP", probe_paciasp_autiasp},
       {"PACIBSP/AUTIBSP", probe_pacibsp_autibsp},
       {"PACIAZ/AUTIAZ",   probe_paciaz_autiaz},
       {"PACIBZ/AUTIBZ",   probe_pacibz_autibz},
       {"XPACLRI",         probe_xpaclri},
-      // PAC-by-register (§F1)
+ // PAC-by-register
       {"PACIA",   probe_pacia},
       {"AUTIA",   probe_autia},
       {"PACIB",   probe_pacib},
@@ -286,7 +286,7 @@ Java_com_example_hellopacret_MainActivity_probe(JNIEnv* env,
       {"AUTDZB",  probe_autdzb},
       {"XPACI",   probe_xpaci},
       {"XPACD",   probe_xpacd},
-      // Branch-with-PAC (§F2)
+ // Branch-with-PAC
       {"BLRAA",   probe_blraa},
       {"BLRAB",   probe_blrab},
       {"BLRAAZ",  probe_blraaz},

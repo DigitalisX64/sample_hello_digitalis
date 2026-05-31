@@ -1,14 +1,14 @@
-// hello-barriers: integration-level probes for ARM64 memory and synchronisation
+// Integration-level probes for ARM64 memory and synchronisation
 // barriers.
 //
-// Locks in the §G2 audit: every barrier-class HINT and the
+// Locks in the audit: every barrier-class HINT and the
 // CRn=0011 barrier family must decode to Nop() on Digitalis (we run above the
 // kernel and inherit host memory ordering via x86-TSO; the locked atomics
 // already provide release/acquire ordering ARM needs).  This sample emits
 // one of each barrier mnemonic via inline asm; the probe is "did we survive
 // past the barrier without an Undefined arm64 instruction SIGILL?"
 //
-// Probe coverage (per §G2):
+// Probe coverage:
 //   YIELD                       -- HINT #1
 //   WFE                         -- HINT #2
 //   WFI                         -- HINT #3 (user-space NOP; kernel handles

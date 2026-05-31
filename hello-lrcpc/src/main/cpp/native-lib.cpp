@@ -1,5 +1,4 @@
-// hello-lrcpc: integration-level probes for Armv8.3-LRCPC and Armv8.1-LOR
-// (plan §G1).
+// Integration-level probes for Armv8.3-LRCPC and Armv8.1-LOR.
 //
 // Digitalis runs above an x86-TSO host whose memory model is strictly
 // stronger than Arm's RCpc (load-acquire RCpc Register) and stronger than

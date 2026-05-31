@@ -1,6 +1,6 @@
-// hello-dotprod: integration-level probe for Armv8.4-DotProd (§C8 / §M1).
+// Integration-level probe for Armv8.4-DotProd.
 //
-// Probes every SDOT/UDOT encoding the §C8 decoder + interpreter implement:
+// Probes every SDOT/UDOT encoding the decoder + interpreter implement:
 //
 //   SDOT V.4S, Vn.16B, Vm.16B          signed,   4 lanes, vector form
 //   UDOT V.4S, Vn.16B, Vm.16B          unsigned, 4 lanes, vector form
@@ -17,8 +17,8 @@
 // *accumulated*, not replaced).  Indexed form broadcasts a single 4-byte
 // group from Vm.16B (selected by the 2-bit index) across all output lanes.
 //
-// The interpreter implementation is in interpreter.h::AdvSimdDotProduct
-// (new this cycle).  If any DOT encoding routes to Undefined() the entire
+// The interpreter implementation is in interpreter.h::AdvSimdDotProduct.
+// If any DOT encoding routes to Undefined() the entire
 // native lib SIGILLs on the first call.  If sign-extension is wrong, the
 // SDOT probes that use negative bytes (we deliberately include them) will
 // give the wrong result.  If the indexed broadcast picks the wrong group,

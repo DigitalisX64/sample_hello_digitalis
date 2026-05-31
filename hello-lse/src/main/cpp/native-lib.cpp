@@ -1,6 +1,6 @@
-// hello-lse: integration-level probes for the Armv8.1-LSE atomic family.
+// Integration-level probes for the Armv8.1-LSE atomic family.
 //
-// Locks in the §B1-§B4 routing fixes (LDEOR/LDSET swap, and CAS/CASP
+// Locks in the routing fixes (LDEOR/LDSET swap, and CAS/CASP
 // dispatch swap).  Each probe is an *inline-asm
 // emit* of one LSE opcode so the compiler can't rewrite it across -O
 // levels or substitute a non-LSE LL/SC pair.  CMakeLists.txt builds with
@@ -14,8 +14,8 @@
 //   LDCLR  W / X         -- fetch-and-with-NOT-of-operand (regression target)
 //   LDEOR  W / X         -- fetch-xor (regression target: swap with LDSET)
 //   LDSET  W / X         -- fetch-or  (regression target: swap with LDEOR)
-//   LDSMAX / LDSMIN W    -- signed max/min (§B3)
-//   LDUMAX / LDUMIN W    -- unsigned max/min (§B3)
+// LDSMAX / LDSMIN W -- signed max/min
+// LDUMAX / LDUMIN W -- unsigned max/min
 //
 // For each: distinct inputs chosen so a silent dispatch swap between
 // neighbouring opcodes produces a *different* memory or return value.

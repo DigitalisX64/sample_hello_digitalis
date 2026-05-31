@@ -1,4 +1,4 @@
-// hello-bti: integration-level probe for Armv8.5-BTI (§J1 / §M1).
+// Integration-level probe for Armv8.5-BTI.
 //
 // BTI (Branch Target Identification) instructions are HINT-space NOPs on
 // any CPU that does not implement BTI.  Digitalis does not enforce BTI;

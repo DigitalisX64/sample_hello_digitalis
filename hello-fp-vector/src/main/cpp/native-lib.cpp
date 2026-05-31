@@ -219,7 +219,7 @@ Java_com_example_hellofpvector_MainActivity_probeFpVector(JNIEnv* env,
     clear_fpsr();
   }
 
-  // Scalar FP exception flag probe (Plan §L1). Each subprobe clears FPSR,
+ // Scalar FP exception flag probe. Each subprobe clears FPSR,
   // runs a scalar FP op known to raise a specific exception, then reads
   // FPSR via MRS and checks the expected sticky bit is set. The FP ops
   // are emitted via inline asm so the C compiler can't constant-fold or

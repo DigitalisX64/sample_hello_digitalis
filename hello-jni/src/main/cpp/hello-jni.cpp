@@ -169,7 +169,7 @@ bool RunSigsegvRecoveryTest(std::string* report) {
   return all_ok;
 }
 
-// §K4 box (3): SIGUSR1 stress test.
+// box (3): SIGUSR1 stress test.
 //
 // Property under test: rapid SIGUSR1 delivery from a sibling thread during
 // heavy pthread_mutex contention must not deadlock or lose iterations. This

@@ -1,4 +1,4 @@
-// hello-libc-libm: integration probes for the Digitalis-side extra libc/libm
+// Integration probes for the Digitalis-side extra libc/libm
 // fast-path trampolines registered via libberberis_digitalis_extra_proxy_arm64.
 //
 // Every probe here exercises a symbol that lives in the guest arm64 libc.so or

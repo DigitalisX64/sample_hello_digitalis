@@ -1,4 +1,4 @@
-// hello-jscvt: integration-level probe for Armv8.3-JSCVT (§D4 / §M1).
+// Integration-level probe for Armv8.3-JSCVT.
 //
 // FJCVTZS converts a double-precision float to a 32-bit signed integer
 // using ECMAScript ToInt32 semantics: round toward zero with modular

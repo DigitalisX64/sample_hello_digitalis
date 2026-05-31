@@ -1,5 +1,5 @@
-// hello-widemul: integration-level probe for ARMv8 widening multiplies
-// SMULL / UMULL / PMULL / PMULL2 (§C8 rows 1-2 / §M1).
+// Integration-level probe for ARMv8 widening multiplies
+// SMULL / UMULL / PMULL / PMULL2 (rows 1-2).
 //
 // The interpreter (interpreter.h::AdvSimdThreeDiff) implements SMULL,
 // UMULL, and PMULL (including PMULL64) for every Vd shape.  This sample

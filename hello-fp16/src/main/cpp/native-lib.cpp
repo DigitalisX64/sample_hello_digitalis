@@ -1,5 +1,4 @@
-// hello-fp16: integration-level probe for Armv8.2-FP16 scalar arithmetic
-// (Plan §E1 / §M1).
+// Integration-level probe for Armv8.2-FP16 scalar arithmetic.
 //
 // The Berberis arm64 decoder accepts ftype=11 (half-precision) in
 // FpDataProc1/FpDataProc2/FpDataProc3/FpCompare/FpCondSelect/
@@ -155,7 +154,7 @@ FP16_OP_2SRC(fminnm)
 FP16_OP_2SRC(fnmul)
 
 // Scalar FP32 / FP64 two-source probes for the FpDataProc2 ftype=00 (S) and
-// ftype=01 (D) JIT paths.  Plan §D1 / §M1: exercise the same five
+// ftype=01 (D) JIT paths exercise the same five
 // opcodes — FMAX / FMIN / FMAXNM / FMINNM / FNMUL — that the FP16 macro
 // above covers, but at single- and double-precision so the JIT lane-0
 // emit sequences are sample-tested.  llvm-mc-verified encodings:
@@ -750,7 +749,7 @@ uint32_t fp16_fccmp_flags_false(uint16_t a, uint16_t b) {
 }
 
 // ============================================================================
-// FP16 vector (NEON) probes — Plan §E2.
+// FP16 vector (NEON) probes.
 //
 // Encoding template "Advanced SIMD three same (FP16)" (ARM ARM C7.2):
 //   0 Q U 0 1 1 1 0 a 1 0 Rm 0 0 opcode 1 Rn Rd
@@ -776,7 +775,7 @@ uint32_t fp16_fccmp_flags_false(uint16_t a, uint16_t b) {
 //
 // Each probe runs the op on a 4-lane vector of FP16 inputs and compares
 // each lane to a portable C reference computed via HalfToSingle -> binary32
-// op -> SingleToHalf (identical to the §E1 scalar reference).
+// op -> SingleToHalf (identical to the scalar reference).
 
 #define FP16V_OP_2SRC(MNEMONIC)                                                \
   void fp16v_##MNEMONIC(const uint16_t a[4], const uint16_t b[4],              \
@@ -1791,7 +1790,7 @@ Java_com_example_hellofp16_MainActivity_probeFp16(JNIEnv* env, jobject) {
   total++; if (check(report, buf, "FCCMP eq",    static_cast<uint16_t>(fp16_fccmp_flags_true(h_1p5, h_1p5)), 0x6)) ok++;
   total++; if (check(report, buf, "FCCMP false", static_cast<uint16_t>(fp16_fccmp_flags_false(h_1p5, h_1p5)), 0xb)) ok++;
 
-  // -- FP16 vector NEON probes (Plan §E2).
+ // -- FP16 vector NEON probes.
   // Four-lane input vectors; per-lane reference computed via the same
   // HalfToSingle / SingleToHalf round-trip used by the scalar probes.
   const uint16_t vA[4] = {h_1p5,  h_3p5, h_third,  h_neg1p5};
