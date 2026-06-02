@@ -1,0 +1,78 @@
+package com.example.hellocronet
+
+import android.os.Bundle
+import android.util.Log
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.hellocronet.R
+import org.chromium.net.CronetEngine
+import org.chromium.net.CronetException
+import org.chromium.net.UrlRequest
+import org.chromium.net.UrlResponseInfo
+import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+
+// Minimal Cronet (Chromium net stack) HTTPS probe. Cronet's ARM64 native
+// library runs under Berberis translation, so a request through it exercises
+// the same guest-side URL parsing + TLS path that fails inside full apps such
+// as com.netease.cloudmusic (net::ERR_INVALID_URL / ERR_SSL_PROTOCOL_ERROR for
+// valid URLs). This is a small, fast reproduction harness for that bug.
+class MainActivity : AppCompatActivity() {
+
+    private val tag = "hellocronet"
+    private val results = StringBuilder()
+    @Volatile private var done = 0
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        val view = findViewById<TextView>(R.id.sample_text)
+        view.text = "Cronet probe running…"
+
+        val engine = CronetEngine.Builder(this).build()
+        Log.i(tag, "Cronet version: ${engine.versionString}")
+        results.append("Cronet ${engine.versionString}\n")
+        val executor = Executors.newSingleThreadExecutor()
+
+        // Plain, unambiguously-valid HTTPS URLs. A correct Cronet accepts them
+        // and returns an HTTP status; a wrong-output bug surfaces as
+        // ERR_INVALID_URL (URL parsing) or ERR_SSL_PROTOCOL_ERROR (TLS).
+        val urls = listOf(
+            "https://www.google.com/generate_204",
+            "https://www.example.com/",
+            "https://interface3.music.163.com/"
+        )
+
+        for (url in urls) {
+            val cb = object : UrlRequest.Callback() {
+                private val sink = ByteBuffer.allocateDirect(16 * 1024)
+                override fun onRedirectReceived(r: UrlRequest, i: UrlResponseInfo?, newUrl: String) =
+                    r.followRedirect()
+                override fun onResponseStarted(r: UrlRequest, i: UrlResponseInfo) = r.read(sink)
+                override fun onReadCompleted(r: UrlRequest, i: UrlResponseInfo, b: ByteBuffer) {
+                    b.clear(); r.read(b)
+                }
+                override fun onSucceeded(r: UrlRequest, i: UrlResponseInfo) =
+                    record(url, "OK http=${i.httpStatusCode}", view, urls.size)
+                override fun onFailed(r: UrlRequest, i: UrlResponseInfo?, e: CronetException) =
+                    record(url, "FAIL ${e.message}", view, urls.size)
+                override fun onCanceled(r: UrlRequest, i: UrlResponseInfo?) =
+                    record(url, "CANCELED", view, urls.size)
+            }
+            engine.newUrlRequestBuilder(url, cb, executor).build().start()
+        }
+    }
+
+    private fun record(url: String, outcome: String, view: TextView, total: Int) {
+        val line = "  $url -> $outcome"
+        Log.i(tag, line)
+        val text: String
+        synchronized(results) {
+            results.append(line).append('\n')
+            done++
+            text = results.toString()
+        }
+        runOnUiThread { view.text = text }
+        if (done == total) Log.i(tag, "Cronet probe complete:\n$text")
+    }
+}
