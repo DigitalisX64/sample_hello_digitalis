@@ -987,6 +987,32 @@ bool probe_crc32c() {
   return true;
 }
 
+// DUP (general) from the zero register. `dup v.<T>, xzr/wzr` is a common
+// compiler idiom to zero a vector; the JIT formerly called GetReg(31) and
+// aborted (CHECK 31<31). Emitted via inline asm so the compiler can't fold it
+// to MOVI. Every form must yield an all-zero vector.
+bool probe_dup_zero() {
+  auto is_zero = [](const uint8_t (&v)[16]) {
+    for (int i = 0; i < 16; ++i)
+      if (v[i] != 0) return false;
+    return true;
+  };
+  alignas(16) uint8_t got[16];
+  __asm__ __volatile__("dup v0.2d, xzr\n\tst1 {v0.16b}, [%0]"
+                       : : "r"(got) : "v0", "memory");
+  CHECK(is_zero(got), "dup v0.2d, xzr");
+  __asm__ __volatile__("dup v0.4s, wzr\n\tst1 {v0.16b}, [%0]"
+                       : : "r"(got) : "v0", "memory");
+  CHECK(is_zero(got), "dup v0.4s, wzr");
+  __asm__ __volatile__("dup v0.16b, wzr\n\tst1 {v0.16b}, [%0]"
+                       : : "r"(got) : "v0", "memory");
+  CHECK(is_zero(got), "dup v0.16b, wzr");
+  __asm__ __volatile__("dup v0.8h, wzr\n\tst1 {v0.16b}, [%0]"
+                       : : "r"(got) : "v0", "memory");
+  CHECK(is_zero(got), "dup v0.8h, wzr");
+  return true;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -1016,6 +1042,7 @@ Java_com_example_helloneon_MainActivity_probeNeon(JNIEnv* env,
       {"Polynomial mul", probe_polymul},
       {"Recip estimate", probe_recip_estimate},
       {"CRC32C", probe_crc32c},
+      {"DUP from zero reg", probe_dup_zero},
   };
 
   bool all_ok = true;
