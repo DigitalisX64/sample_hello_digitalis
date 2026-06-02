@@ -22,6 +22,7 @@ class MainActivity : AppCompatActivity() {
     private val tag = "hellocronet"
     private val results = StringBuilder()
     @Volatile private var done = 0
+    private var engine: CronetEngine? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,8 +31,16 @@ class MainActivity : AppCompatActivity() {
         view.text = "Cronet probe running…"
 
         val engine = CronetEngine.Builder(this).build()
+        this.engine = engine
         Log.i(tag, "Cronet version: ${engine.versionString}")
         results.append("Cronet ${engine.versionString}\n")
+        // Capture a NetLog so the precise SSL handshake failure (BoringSSL
+        // error / TLS alert) is recorded for diagnosis.
+        runCatching {
+            val f = java.io.File(filesDir, "netlog.json")
+            engine.startNetLogToFile(f.absolutePath, true)
+            Log.i(tag, "netlog -> ${f.absolutePath}")
+        }
         val executor = Executors.newSingleThreadExecutor()
 
         // Plain, unambiguously-valid HTTPS URLs. A correct Cronet accepts them
@@ -73,6 +82,9 @@ class MainActivity : AppCompatActivity() {
             text = results.toString()
         }
         runOnUiThread { view.text = text }
-        if (done == total) Log.i(tag, "Cronet probe complete:\n$text")
+        if (done == total) {
+            runCatching { engine?.stopNetLog() }
+            Log.i(tag, "Cronet probe complete:\n$text")
+        }
     }
 }
