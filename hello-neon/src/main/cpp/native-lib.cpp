@@ -673,6 +673,33 @@ bool probe_permute() {
     vst1q_u32(got, vextq_u32(vld1q_u32(a), vld1q_u32(b), 2));
     CHECK(array_eq(got, want), "vextq_u32");
   }
+  // vextq_u8 with ODD imm4 (1, 3, 7) — byte-granular EXT whose imm4 is odd.
+  // An odd-imm4 EXT shares bits[28:24] and bits[11:10] with the AdvSIMD
+  // two-reg-misc group; without the decoder's bit21 guard these are
+  // mis-dispatched and never reach the EXT handler (the even-imm4 vextq_u32
+  // above happens to dodge the collision, so it can't catch the bug).
+  {
+    alignas(16) uint8_t ba[16], bb[16];
+    for (int i = 0; i < 16; ++i) {
+      ba[i] = static_cast<uint8_t>(i);
+      bb[i] = static_cast<uint8_t>(0x10 + i);
+    }
+    alignas(16) uint8_t got[16];
+    // EXT #imm: result[i] = concat{ba:bb}[i + imm].
+    for (int imm : {1, 3, 7}) {
+      alignas(16) uint8_t want[16];
+      for (int i = 0; i < 16; ++i) {
+        int src = i + imm;
+        want[i] = (src < 16) ? ba[src] : bb[src - 16];
+      }
+      switch (imm) {
+        case 1: vst1q_u8(got, vextq_u8(vld1q_u8(ba), vld1q_u8(bb), 1)); break;
+        case 3: vst1q_u8(got, vextq_u8(vld1q_u8(ba), vld1q_u8(bb), 3)); break;
+        case 7: vst1q_u8(got, vextq_u8(vld1q_u8(ba), vld1q_u8(bb), 7)); break;
+      }
+      CHECK(array_eq(got, want), "vextq_u8 odd imm4");
+    }
+  }
   // vzip1q / vzip2q
   {
     alignas(16) uint32_t got[4], w1[4] = {1, 10, 2, 20}, w2[4] = {3, 30, 4, 40};
