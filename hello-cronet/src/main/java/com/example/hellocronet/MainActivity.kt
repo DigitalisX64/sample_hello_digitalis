@@ -43,13 +43,18 @@ class MainActivity : AppCompatActivity() {
         }
         val executor = Executors.newSingleThreadExecutor()
 
-        // Plain, unambiguously-valid HTTPS URLs. A correct Cronet accepts them
-        // and returns an HTTP status; a wrong-output bug surfaces as
-        // ERR_INVALID_URL (URL parsing) or ERR_SSL_PROTOCOL_ERROR (TLS).
+        // Plain, unambiguously-valid HTTPS URLs that drive a real TLS handshake
+        // (incl. a long eapi-style URL with a big hex query param). A correct
+        // translation returns an HTTP status; the TLS-under-translation bug made
+        // every one fail with ERR_SSL_PROTOCOL_ERROR (BoringSSL signature verify
+        // via the bignum carry path). They all succeed once that is fixed.
         val urls = listOf(
             "https://www.google.com/generate_204",
-            "https://www.example.com/",
-            "https://interface3.music.163.com/"
+            "https://interface3.music.163.com/",
+            "https://interface3.music.163.com/eapi/resource-exposure/config?" +
+                "resourcePosition=login_new&fromPage=RN&rnBundleName=new-rn-login&" +
+                "checkToken=9ca17ae2e6fbcda170e2e6ee82d15a8b9899a9d75b9bac8eb2d85e8" +
+                "68e9b83d23d8f888db6e94b898aa8b6b52af0feaec3b92a918fc090b558ed8a9a92b55a"
         )
 
         for (url in urls) {
