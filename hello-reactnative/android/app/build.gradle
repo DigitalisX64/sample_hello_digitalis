@@ -1,0 +1,43 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("com.facebook.react")
+}
+
+react {
+    root = file("../../")
+    reactNativeDir = file("../../node_modules/react-native")
+    codegenDir = file("../../node_modules/@react-native/codegen")
+    cliFile = file("../../node_modules/@react-native-community/cli/build/bin.js")
+    entryFile = file("../../index.js")
+    bundleAssetName = "index.android.bundle"
+    debuggableVariants = []
+    autolinkLibrariesWithApp()
+}
+
+android {
+    namespace "com.example.hellodigitalis.helloreactnative"
+    compileSdk 35
+    defaultConfig {
+        applicationId "com.example.hellodigitalis.helloreactnative"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        ndk { abiFilters "arm64-v8a" }
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    buildTypes { release { minifyEnabled false } }
+    packagingOptions { jniLibs { useLegacyPackaging true } }
+}
+
+dependencies {
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.facebook.react:react-android")
+    implementation("com.facebook.react:hermes-android")
+}
