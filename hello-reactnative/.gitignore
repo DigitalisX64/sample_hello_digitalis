@@ -1,0 +1,7 @@
+# JS toolchain — only needed to re-bundle index.android.bundle, not to build the
+# APK (the prebuilt Hermes bytecode under src/main/assets is committed).
+/node_modules
+/build
+/.gradle
+npm-debug.log
+yarn-error.log
