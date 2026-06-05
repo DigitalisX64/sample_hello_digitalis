@@ -29,5 +29,5 @@ dependencies {
     // bytecode under src/main/assets/index.android.bundle.
     implementation("com.facebook.react:react-android:0.79.7")
     implementation("com.facebook.react:hermes-android:0.79.7")
-    androidTestImplementation(project(":status-test-lib"))
+    androidTestImplementation(project(":screenshot-test-lib"))
 }

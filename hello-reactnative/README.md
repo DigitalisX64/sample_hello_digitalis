@@ -10,8 +10,11 @@ parsing surface — `parseInt` / `Number` / `JSON.parse` / `RegExp` — which He
 routes through bionic libc (`strtoull` / `strtoumax` / `strtod`), the path a
 NetEase worker thread was observed hanging on.
 
-The suite's `StatusTest` asserts the app launches and runs **without crashing**
-under translation (it is registered as a `StatusTest`, not a screenshot test).
+The suite's `ScreenshotTest` launches the app and pixel-compares the rendered
+screen against a committed reference (`src/androidTest/assets/reference/
+screenshot_default.png`) — the title, the deterministic parse result
+(`acc=13142540… matches=4 json=123`), and the green **"RN+Hermes parsing OK"**
+line. This guards both the native translation path and correct rendering.
 
 ## Build
 
@@ -39,13 +42,15 @@ mv src/main/assets/index.android.bundle.hbc src/main/assets/index.android.bundle
 ## Architecture note
 
 React Native 0.79 (the only series published to Maven Central) defaults to the
-New Architecture (Fabric + TurboModules), whose view rendering needs codegen via
-the React Native Gradle plugin. To keep this module self-contained (no shared
-`settings.gradle` plugin wiring), it runs on the **classic bridge** with the
-bridgeless feature flag turned off. In that mode Hermes runs the JS and the full
-native stack loads and translates, but the legacy Paper view renderer is largely
-gone in 0.79, so the JS components do not mount to visible native views — the
-screen stays blank. That does **not** affect what this sample is for: exercising
-and regressing the React Native + Hermes **native translation** path (a crash
-there fails the `StatusTest`). Making the UI render would require enabling the
-New Architecture + the React Native Gradle plugin (codegen).
+New Architecture (Fabric + TurboModules). To keep this module self-contained (no
+shared `settings.gradle` plugin wiring), it runs on the **classic bridge** with
+the bridgeless feature flag turned off, depending only on the Maven AARs plus the
+pre-bundled Hermes bytecode. Hermes runs the JS and the full native stack loads
+and translates, and the UI renders to visible native views.
+
+This sample previously rendered blank under Berberis, which was misattributed to
+an RN-0.79 classic-bridge limitation. The real cause was a translator bug: the
+interpreter's FCSEL handler corrupted `fcsel Dd, Dn, Dm` when `rd == rn`, which
+made Hermes `parseInt` / `Number` (and bionic `strtod`) return 0, collapsing the
+layout to a blank screen. With that fixed in the binary translator, the screen
+renders correctly — the sample is the spec; the translator caught up to it.
