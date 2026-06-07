@@ -42,6 +42,7 @@ The original `hello-vulkan` module was written for the Digitalis project.
 | hello-gles1         | GLES 1.x proxy-lib smoke test (`libGLESv1_CM`)        | `./gradlew :hello-gles1:assembleDebug`         |
 | hello-gles3         | OpenGL ES 3.2 EGL context repro (granted as host-max ES 3.1) | `./gradlew :hello-gles3:assembleDebug`         |
 | hello-lynx          | Lynx (ReactLynx + PrimJS) native UI engine sample     | `./gradlew :hello-lynx:assembleDebug`          |
+| hello-mmkv          | Tencent MMKV native key-value store (`libmmkv.so`)    | `./gradlew :hello-mmkv:assembleDebug`          |
 | hello-aaudio        | AAudio proxy-lib smoke test (`libaaudio`)             | `./gradlew :hello-aaudio:assembleDebug`        |
 | hello-binder-ndk    | NDK Binder proxy-lib smoke test (`libbinder_ndk`)     | `./gradlew :hello-binder-ndk:assembleDebug`    |
 | hello-nnapi         | NNAPI proxy-lib smoke test (`libneuralnetworks`)      | `./gradlew :hello-nnapi:assembleDebug`         |
@@ -112,6 +113,7 @@ See `vulkancapsviewer-test/README.md` for the two paths to obtain the APK (upstr
 | hello-gles1 | PASS | `glGetError()` resolves through `libberberis_proxy_libGLESv1_CM.so` |
 | hello-gles3 | PASS | ES 3.2 `eglCreateContext` granted as ES 3.1 (gfxstream guest-EGL clamp); renders a deterministic pattern |
 | hello-lynx | PASS | Lynx engine + PrimJS JS runtime execute the prebuilt `.lynx.bundle`; ReactLynx page renders under translation |
+| hello-mmkv | PASS | Tencent MMKV `libmmkv.so` loads; int/bool/long/double/string/bytes round-trip through MMKV's mmap-backed native store |
 | hello-aaudio | PASS | `AAudio_createStreamBuilder` resolves through `libberberis_proxy_libaaudio.so` |
 | hello-binder-ndk | PASS | `AIBinder_Class_define` / `AIBinder_new` resolve through `libberberis_proxy_libbinder_ndk.so` |
 | hello-nnapi | PASS | `ANeuralNetworks_getDeviceCount` resolves through `libberberis_proxy_libneuralnetworks.so` |
