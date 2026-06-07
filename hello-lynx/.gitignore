@@ -1,0 +1,7 @@
+# Node toolchain + Lynx build outputs (the committed artifact is the prebuilt
+# src/main/assets/main.lynx.bundle; rebuild it with `cd frontend && npm install
+# && npm run build`).
+frontend/node_modules/
+frontend/dist/
+frontend/.rspeedy/
+/build/
