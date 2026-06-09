@@ -95,9 +95,17 @@ class StatusTestRule(
         val log = shell("logcat -d -v brief --pid=$pid")
         val markers = DEFAULT_FAILURE_MARKERS + extraFailureMarkers
         for (m in markers) {
-            if (log.contains(m)) {
-                val line = log.lineSequence().firstOrNull { it.contains(m) }?.trim() ?: m
-                fail("Sample $packageName logged failure marker \"$m\": $line")
+            // A line matches a marker only if it isn't a known-benign log. The
+            // berberis loader logs "LoadGuestLibrary FAILED for <lib>" when a
+            // native lib probes an OPTIONAL companion .so that isn't present
+            // (e.g. TensorFlow Lite trying libtensorflowlite_jni_gms_client.so on
+            // a GMS-less image) and then falls back successfully — that "FAILED"
+            // is not a sample failure, so don't let it trip the "FAIL" marker.
+            val offending = log.lineSequence().firstOrNull { line ->
+                line.contains(m) && BENIGN_LINE_FRAGMENTS.none { line.contains(it) }
+            }
+            if (offending != null) {
+                fail("Sample $packageName logged failure marker \"$m\": ${offending.trim()}")
             }
         }
         Log.i(TAG, "$packageName ran cleanly (pid=$pid, no failure markers)")
@@ -116,6 +124,14 @@ class StatusTestRule(
             "Undefined arm64 instruction",
             "FATAL EXCEPTION",
             "FAIL",
+        )
+
+        // Lines containing any of these are benign and must not trip a marker.
+        // "LoadGuestLibrary FAILED" is the berberis loader reporting that an
+        // OPTIONAL companion .so a native lib probed for is absent; the lib then
+        // falls back and runs fine, so it is not a sample failure.
+        private val BENIGN_LINE_FRAGMENTS = listOf(
+            "LoadGuestLibrary FAILED",
         )
     }
 }
