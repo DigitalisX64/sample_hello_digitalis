@@ -11,6 +11,11 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // bilibili ijkplayer was published to the now-defunct JCenter; the
+        // aliyun public mirror still serves its arm64-v8a AAR.
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        // JitPack for libraries distributed only via GitHub releases.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
@@ -40,6 +45,7 @@ include(":orderfile")
 include(":hello-gles1")
 include(":hello-gles3")
 include(":hello-msaa")
+include(":hello-ijkplayer")
 include(":hello-lynx")
 include(":hello-mmkv")
 include(":hello-aaudio")
