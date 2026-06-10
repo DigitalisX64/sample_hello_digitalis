@@ -1,0 +1,4 @@
+.gradle/
+build/
+hello-realm-debug.apk
+local.properties

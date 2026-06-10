@@ -1,54 +1,65 @@
-# hello-realm — blocked by the AGP 9 / Kotlin toolchain (not the translator)
+# hello-realm — standalone build (the hello-qt pattern)
 
 This module exercises Realm Kotlin's native store (`librealmc.so`, Realm Core
-C++). The translator is not implicated: the module cannot be **compiled** under
-this project's build toolchain, so it is intentionally left out of
-`settings.gradle.kts` and `test-samples.sh`.
+C++) under Berberis ARM64→x86_64 translation. It builds and runs — but **not
+inside the suite's Gradle build**. Like `hello-qt`, it is a standalone Gradle
+project anchored by its own `settings.gradle.kts`, intentionally left out of
+the suite's `settings.gradle.kts` and `test-samples.sh`.
 
-## Root cause
+## Why it can't build in the suite
 
 Realm Kotlin works via a Kotlin **compiler plugin** (`io.realm.kotlin`) that
-generates the schema glue for each `RealmObject` during Kotlin compilation. A
-Kotlin compiler plugin links against Kotlin compiler internals, so its binary
-ABI must match the exact Kotlin compiler version in use.
+generates schema glue for each `RealmObject` during compilation. A compiler
+plugin links against Kotlin compiler internals, so its ABI must match the
+compiler exactly.
 
-- The project builds with **AGP 9.0.0** and its **built-in Kotlin** (a Kotlin
-  2.1+/2.2 compiler). AGP 9 puts Kotlin on the classpath itself, so applying an
-  external `org.jetbrains.kotlin.android` at a pinned version is rejected:
-  *"plugin is already on the classpath with an unknown version."*
-- Realm Kotlin's latest **and final** release is **3.0.0** (MongoDB sunset the
-  project). Its compiler plugin targets an older Kotlin. Loaded into AGP 9's
-  compiler it crashes during `compileDebugKotlin`:
+- The suite builds with **AGP 9.0** and its **built-in Kotlin** (2.1+). AGP 9
+  puts Kotlin on the classpath itself, so an external pinned
+  `org.jetbrains.kotlin.android` is rejected ("plugin is already on the
+  classpath with an unknown version").
+- Realm Kotlin's latest **and final** release is **3.0.0 / 2.3.0** (MongoDB
+  sunset the project); its compiler plugin targets Kotlin ≤2.0.x. Loaded into
+  AGP 9's compiler it crashes `compileDebugKotlin`:
 
   ```
   e: java.lang.NoSuchMethodError:
      'org.jetbrains.kotlin.fir.types.ConeKotlinType
       org.jetbrains.kotlin.fir.types.FirResolvedTypeRef.getType()'
         at io.realm.kotlin.compiler.IrUtilsKt.isBaseRealmObject(IrUtils.kt:225)
-        at io.realm.kotlin.compiler.fir.model.ObjectExtension.getCallableNamesForClass
   ```
 
-  i.e. the plugin calls a FIR compiler-internal method that the newer Kotlin
-  removed/changed.
+- There is no schema-less API (codegen is mandatory), no Java-entity escape
+  hatch (it's a compiler plugin, not a JSR-269 processor), and realm-java's
+  Gradle plugin uses the Transform API that AGP 8 removed.
 
-## Why there is no in-surface fix
+## The standalone solution
 
-- **No schema-less API.** Unlike AppSearch (GenericDocument) there is no Realm
-  API that avoids the compiler plugin — `RealmObject` codegen is mandatory.
-- **No Java-entity escape hatch.** It is a Kotlin *compiler* plugin, not a
-  JSR-269 annotation processor, so the ObjectBox-style "write the entity in
-  Java + `annotationProcessor`" trick does not apply.
-- **realm-java is also dead on AGP 9.** The older `io.realm:realm-android`
-  variant relies on a Gradle **Transform API** bytecode weaver that AGP 8
-  removed entirely.
-- **Downgrading is not module-local.** Pinning the whole project to Kotlin
-  2.0.20 to satisfy Realm would break the 50+ other sample modules that rely on
-  AGP 9's built-in Kotlin.
+`settings.gradle.kts` here anchors a self-contained build that pins the
+toolchain Realm 2.3.0 supports:
 
-## What would unblock it
+| Component | Version |
+|-----------|---------|
+| Gradle (own wrapper) | 8.9 |
+| Android Gradle Plugin | 8.7.3 |
+| Kotlin Android plugin | 2.0.20 |
+| io.realm.kotlin | 2.3.0 |
 
-A Realm Kotlin release whose compiler plugin is built against the Kotlin
-compiler AGP 9 bundles. Since the project is sunset, that release is unlikely to
-appear. If Realm support is required, the alternative is a separate build
-environment pinned to AGP/Kotlin versions Realm 3.0.0 supports — out of scope
-for this in-tree sample suite.
+Build and verify:
+
+```bash
+./build-apk.sh                      # produces hello-realm-debug.apk
+adb install -r hello-realm-debug.apk
+adb shell am start -n com.example.hellodigitalis.hellorealm/com.example.hellorealm.MainActivity
+adb logcat -d -s HelloRealm:*       # expect "REALM OK (…)"
+```
+
+The probe opens a Realm (loads arm64-v8a `librealmc.so`), writes an `Item`,
+queries it back, and logs `REALM OK` / `REALM FAIL`. There is no
+instrumentation `StatusTest` — the suite's `status-test-lib` lives in the
+AGP 9 build and can't be consumed from this pinned toolchain, so verification
+is launch + logcat (exactly how `hello-qt` is verified).
+
+Verified on the Digitalis emulator: `REALM OK (schemaVersion=0, count=1,
+name=realm-ⓦ)` — Realm Core's native store works under translation; the
+incompatibility was always the host-side build toolchain, never the
+translator.
