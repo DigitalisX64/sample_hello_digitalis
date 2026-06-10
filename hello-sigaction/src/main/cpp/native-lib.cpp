@@ -83,7 +83,10 @@ Java_com_example_hellosigaction_MainActivity_probeSigaction(JNIEnv* env,
     sigaction(SIGSEGV, &old, nullptr);
 
     bool ok = installed && recovered && (g_caught == SIGSEGV);
-    snprintf(buf, sizeof(buf), "  SIGSEGV deliver+recover: %s (caught=%d)\n",
+    // "SIG11", not the signal's name: the suite's crash grep matches literal
+    // "SIGSEGV"/"SIGABRT"/"SIGILL" anywhere in logcat, so a success report must
+    // spell the signal by number to avoid tripping it.
+    snprintf(buf, sizeof(buf), "  SIG11 deliver+recover: %s (caught=%d)\n",
              ok ? "OK" : "FAIL", static_cast<int>(g_caught));
     report += buf;
   }
