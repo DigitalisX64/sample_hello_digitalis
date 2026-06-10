@@ -1,0 +1,37 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+android {
+    namespace = "com.example.hellodigitalis.hellooboe"
+    compileSdk = 35
+    defaultConfig {
+        applicationId = "com.example.hellodigitalis.hellooboe"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
+        ndk { abiFilters += "arm64-v8a" }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake { arguments += "-DANDROID_STL=c++_shared" }
+        }
+    }
+    buildFeatures {
+        prefab = true
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+    buildTypes { release { isMinifyEnabled = false } }
+    externalNativeBuild {
+        cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" }
+    }
+}
+dependencies {
+    implementation(libs.material)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
+    implementation("com.google.oboe:oboe:1.9.3")
+    androidTestImplementation(project(":status-test-lib"))
+}
