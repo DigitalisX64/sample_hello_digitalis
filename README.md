@@ -1,124 +1,239 @@
 # Hello Digitalis Samples
 
-ARM64-only sample apps for testing Digitalis binary translation.
+ARM64-only sample apps for testing Digitalis ARM64→x86_64 binary translation.
+Every module builds a single-ABI (`arm64-v8a`) APK; on the Digitalis x86_64
+emulator all of its native code runs through NativeBridge translation
+(`libberberis_arm64.so`). The samples are the spec: when one fails, the bug is
+in the translator, not the sample.
 
 ## Credits
 
-Most sample modules in this project are ported from the
-[Android NDK Samples](https://github.com/android/ndk-samples) repository
-by Google, licensed under the
-[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-Modifications were made to build as ARM64-only modules for testing
-Digitalis binary translation.
+The NDK-port modules are ported from Google's
+[Android NDK Samples](https://github.com/android/ndk-samples), licensed under
+the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), modified
+to build as ARM64-only modules. `renderscript-toolkit` vendors AOSP's
+[RenderScript intrinsics replacement toolkit](https://github.com/android/renderscript-intrinsics-replacement-toolkit)
+source (Apache 2.0). The third-party-library samples pull each library's
+published arm64-v8a artifact from Maven (or a public mirror); those libraries
+remain under their own licenses. Everything else was written for the Digitalis
+project.
 
-The original `hello-vulkan` module was written for the Digitalis project.
+## Module catalog (84 samples)
 
-## Modules
+82 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+build standalone (see [Standalone builds](#standalone-builds)). Build any
+suite module with `./gradlew :<module>:assembleDebug`.
 
-| Module              | Description                                           | Build                                          |
-|---------------------|-------------------------------------------------------|------------------------------------------------|
-| hello-vulkan        | Vulkan triangle renderer                              | `./gradlew :hello-vulkan:assembleDebug`        |
-| hello-jni           | Basic JNI — calls C code from Kotlin Activity         | `./gradlew :hello-jni:assembleDebug`           |
-| hello-jniCallback   | JNI callbacks — native code calls Java methods        | `./gradlew :hello-jniCallback:assembleDebug`   |
-| exceptions          | C++ exception handling across JNI boundary            | `./gradlew :exceptions:assembleDebug`          |
-| bitmap-plasma       | Plasma effect rendered to Android Bitmap via JNI      | `./gradlew :bitmap-plasma:assembleDebug`       |
-| hello-gl2           | OpenGL ES 2.0 triangle via JNI                        | `./gradlew :hello-gl2:assembleDebug`           |
-| gles3jni            | OpenGL ES 3.0 with instanced rendering                | `./gradlew :gles3jni:assembleDebug`            |
-| native-activity     | Pure C++ NativeActivity with EGL/GLES rendering       | `./gradlew :native-activity:assembleDebug`     |
-| native-audio        | OpenSL ES audio playback and recording                | `./gradlew :native-audio:assembleDebug`        |
-| native-codec        | Video playback using Native Media Codec API           | `./gradlew :native-codec:assembleDebug`        |
-| native-midi         | Android Native MIDI API (requires Android 10+)        | `./gradlew :native-midi:assembleDebug`         |
-| sensor-graph        | Accelerometer sensor visualization with OpenGL        | `./gradlew :sensor-graph:assembleDebug`        |
-| camera-basic        | Camera2 NDK preview and JPEG capture                  | `./gradlew :camera-basic:assembleDebug`        |
-| camera-texture-view | Camera preview with TextureView rendering             | `./gradlew :camera-texture-view:assembleDebug` |
-| teapots-classic     | Utah teapot with GLES 2.0 and touch gestures          | `./gradlew :teapots-classic:assembleDebug`     |
-| teapots-more        | GLES 3.0 instanced teapots rendering                  | `./gradlew :teapots-more:assembleDebug`        |
-| teapots-textured    | Textured teapot with ImageDecoder (Android 11+)       | `./gradlew :teapots-textured:assembleDebug`    |
-| endless-tunnel      | 3D tunnel game with scene management and GLES 2.0     | `./gradlew :endless-tunnel:assembleDebug`      |
-| sanitizers          | Address/UB sanitizer demo (HWASan/ASan/UBSan)         | `./gradlew :sanitizers:assembleDebug`          |
-| unit-test           | Native unit testing with GoogleTest via Prefab        | `./gradlew :unit-test:assembleDebug`           |
-| vectorization       | SIMD vectorization benchmarks (matrix multiplication) | `./gradlew :vectorization:assembleDebug`       |
-| orderfile           | Binary optimization with linker order files           | `./gradlew :orderfile:assembleDebug`           |
-| hello-gles1         | GLES 1.x proxy-lib smoke test (`libGLESv1_CM`)        | `./gradlew :hello-gles1:assembleDebug`         |
-| hello-gles3         | OpenGL ES 3.2 EGL context repro (granted as host-max ES 3.1) | `./gradlew :hello-gles3:assembleDebug`         |
-| hello-lynx          | Lynx (ReactLynx + PrimJS) native UI engine sample     | `./gradlew :hello-lynx:assembleDebug`          |
-| hello-mmkv          | Tencent MMKV native key-value store (`libmmkv.so`)    | `./gradlew :hello-mmkv:assembleDebug`          |
-| hello-aaudio        | AAudio proxy-lib smoke test (`libaaudio`)             | `./gradlew :hello-aaudio:assembleDebug`        |
-| hello-binder-ndk    | NDK Binder proxy-lib smoke test (`libbinder_ndk`)     | `./gradlew :hello-binder-ndk:assembleDebug`    |
-| hello-nnapi         | NNAPI proxy-lib smoke test (`libneuralnetworks`)      | `./gradlew :hello-nnapi:assembleDebug`         |
-| hello-fp-vector     | NEON vector FP three-same regression (FMUL/FADD/FSUB/FMLA/FMLS on `.4S` and `.2D`) | `./gradlew :hello-fp-vector:assembleDebug`     |
+### NDK-samples ports (21)
+
+| Module | Exercises |
+|--------|-----------|
+| hello-jni | Basic JNI — calls C code from a Kotlin Activity |
+| hello-jniCallback | JNI callbacks — native code calls Java methods |
+| exceptions | C++ exception handling across the JNI boundary |
+| bitmap-plasma | Plasma effect rendered into an Android Bitmap via JNI |
+| hello-gl2 | OpenGL ES 2.0 triangle via JNI |
+| gles3jni | OpenGL ES 3.0 instanced rendering |
+| native-activity | Pure C++ NativeActivity with EGL/GLES |
+| native-audio | OpenSL ES playback and recording |
+| native-codec | Video playback through the NDK media codec API |
+| native-midi | Android native MIDI API |
+| sensor-graph | Accelerometer visualization with OpenGL |
+| camera-basic | Camera2 NDK preview and JPEG capture |
+| camera-texture-view | Camera preview into a TextureView |
+| teapots-classic | Utah teapot, GLES 2.0 + touch gestures |
+| teapots-more | GLES 3.0 instanced teapots |
+| teapots-textured | Textured teapot with ImageDecoder |
+| endless-tunnel | 3D tunnel game (scene management, GLES 2.0) |
+| sanitizers | HWASan/ASan/UBSan demo |
+| unit-test | Native GoogleTest via Prefab |
+| vectorization | SIMD vectorization benchmarks |
+| orderfile | Linker order-file optimization |
+
+### Graphics & proxy-library smoke tests (7)
+
+| Module | Exercises |
+|--------|-----------|
+| hello-vulkan | Vulkan triangle renderer (the original Digitalis sample) |
+| hello-gles1 | GLES 1.x calls through `libberberis_proxy_libGLESv1_CM` |
+| hello-gles3 | OpenGL ES 3.2 EGL context (granted as host-max ES 3.1), deterministic pattern |
+| hello-msaa | 1x/2x/4x/8x multisample FBO grid, resolved into one frame |
+| hello-aaudio | AAudio stream builder through `libberberis_proxy_libaaudio` |
+| hello-binder-ndk | NDK binder define/new + host-thread callback round-trip |
+| hello-nnapi | NNAPI device enumeration through `libberberis_proxy_libneuralnetworks` |
+
+### ARM extension & ABI probes (21)
+
+| Module | Exercises |
+|--------|-----------|
+| hello-neon | NEON intrinsics battery: arithmetic, permutes (EXT, REV32, DUP), CRC32/CRC32C, URECPE/URSQRTE |
+| hello-fp-vector | Vector FP three-same: FMUL/FADD/FSUB/FMLA/FMLS on `.4S` and `.2D` |
+| hello-fp16 | Armv8.2-FP16 half-precision ops, scalar FCVTAS/FCVTAU |
+| hello-bf16 | Armv8.6-BF16 |
+| hello-dotprod | Armv8.4-DotProd (SDOT/UDOT) |
+| hello-jscvt | Armv8.3-JSCVT (FJCVTZS) |
+| hello-complex | Armv8.3-FCMA (FCMLA/FCADD) |
+| hello-lse | Armv8.1-LSE atomics (CAS/SWP/LDADD family) |
+| hello-lrcpc | Armv8.3-LRCPC and Armv8.1-LOR (LDAPR/LDLAR family) |
+| hello-ldxp | Exclusive pairs: LDXP/LDAXP/STXP/STLXP |
+| hello-barriers | Memory/synchronization barriers (DMB/DSB/ISB) |
+| hello-aes | AES crypto extension (AESE/AESD/AESMC/AESIMC) |
+| hello-sha-crypto | SHA-1/SHA-2 and SM3 crypto extensions |
+| hello-widemul | Widening multiplies (SMULL/UMULL/PMULL/PMULL2, high halves) |
+| hello-cntvct | Generic-timer system registers via MRS (CNTFRQ/CNTVCT/CNTPCT_EL0) |
+| hello-bti | Armv8.5-BTI branch-target identification |
+| hello-pac-ret | Pointer-authentication return-address signing |
+| hello-ld-interleave | NEON multi-structure LD1/ST1 and interleaved LD2/ST2 |
+| hello-superpack-regress | Regression probes for JIT bugs once hit by Facebook/WhatsApp (LDP base aliasing and friends) |
+| hello-libc-libm | Digitalis extra libc/libm fast-path trampolines |
+| hello-sigaction | sigaction install/readback, SIGSEGV delivery + siglongjmp recovery |
+
+### UI engines (3)
+
+| Module | Exercises |
+|--------|-----------|
+| hello-reactnative | React Native + Hermes, prebuilt bytecode bundle |
+| hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
+| hello-qt | Qt 6 widgets (standalone build) |
+
+### Third-party native libraries (32)
+
+Media:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-ijkplayer | bilibili ijkplayer (FFmpeg) playback |
+| hello-libvlc | libVLC playback |
+| hello-ffmpeg-kit | FFmpegKit — FFprobe media information over a bundled WAV |
+| hello-oboe | Oboe — open/start/write/stop an audio stream |
+
+Imaging:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-fresco | Fresco native image pipeline decode |
+| hello-gpuimage | GPUImage native filter |
+| hello-libpag | Tencent libpag PAG render |
+| hello-gif | android-gif-drawable native GIF decode |
+| hello-pdfium | PDFium page render |
+| hello-renderscript-toolkit | RenderScript replacement Toolkit intrinsics (blur, histogram, …) via the vendored `renderscript-toolkit` module |
+
+Vision & ML:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-opencv | OpenCV NEON computer vision |
+| hello-tflite | TensorFlow Lite inference |
+| hello-litert-llm | LiteRT-LM on-device LLM runtime |
+| hello-pytorch | PyTorch Mobile inference |
+| hello-ncnn | Tencent ncnn CPU inference (fp32 pinned) |
+| hello-zxing | ZXing barcode decode |
+| hello-tesseract | Tesseract OCR |
+
+Crypto, storage & runtimes:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-sqlcipher | SQLCipher encrypted SQLite |
+| hello-conscrypt | Conscrypt TLS/crypto provider |
+| hello-libsignal | Signal Protocol session encrypt/decrypt |
+| hello-realm | Realm Kotlin native store (standalone build) |
+| hello-objectbox | ObjectBox store round-trip |
+| hello-mmkv | Tencent MMKV mmap-backed key-value store |
+| hello-zstd | zstd compression round-trip |
+| hello-quickjs | QuickJS JavaScript engine eval |
+| hello-cronet | Cronet TLS handshake |
+
+AndroidX native:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-sqlite-bundled | androidx.sqlite bundled SQLite |
+| hello-graphics-path | androidx.graphics.path iteration |
+| hello-camera-core | CameraX native image-util |
+| hello-tracing-perfetto | Perfetto SDK tracing |
+| hello-appsearch | AppSearch/Icing (schema-less GenericDocument probe) |
+| hello-ink | androidx.ink stroke geometry |
+
+### Helper modules (not samples)
+
+- `status-test-lib` / `screenshot-test-lib` — the instrumentation harnesses
+  the samples share (see [Testing](#testing)).
+- `renderscript-toolkit` — vendored library consumed by
+  `hello-renderscript-toolkit`.
+
+## Standalone builds
+
+Two samples need toolchains the suite's AGP version cannot host, so they are
+self-contained Gradle projects with their own `settings.gradle.kts`, pinned
+wrapper, and `build-apk.sh`; they are intentionally absent from the suite's
+`settings.gradle.kts`:
+
+- **hello-qt** — Qt 6 widgets; verified by launch.
+- **hello-realm** — Realm Kotlin's compiler plugin requires Kotlin ≤ 2.0.x, so
+  it pins Gradle 8.9 / AGP 8.7.3 / Kotlin 2.0.20; verified by launch
+  (`REALM OK` in logcat). See `hello-realm/NOTES.md`.
+
+Two more module directories exist but are excluded from the build entirely:
+**hello-media3-ffmpeg** and **hello-media3-av1**. Google publishes no prebuilt
+AAR for the Media3 FFmpeg/AV1 decoder extensions (source-only artifacts), so
+there is nothing to build against; each module's `NOTES.md` documents the gap
+and the unblock step.
 
 ## Prerequisites
 
-- Android SDK with NDK (cmake 3.22.1+)
-- `glslangValidator` for GLSL-to-SPIR-V shader compilation (included in the NDK's `shader-tools/` or install via the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home))
+- JDK 21
+- Android SDK with NDK and CMake 3.22.1+
+- `glslangValidator` for GLSL-to-SPIR-V shader compilation (in the NDK's
+  `shader-tools/`, or via the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home),
+  or `apt install glslang-tools`)
 
 ## Build
 
-Build all modules:
-
 ```bash
-./gradlew assembleDebug
+./gradlew assembleDebug                       # all suite modules
+./gradlew assembleDebug assembleAndroidTest   # what CI builds on every push
+(cd hello-qt && ./build-apk.sh)               # standalone
+(cd hello-realm && ./build-apk.sh)            # standalone
 ```
 
-## Install and Run
+## Testing
 
-On the Digitalis emulator (x86_64 with NativeBridge):
+Every suite module carries a deterministic instrumented test: a `StatusTest`
+that runs the module's core native op and asserts a known result, or — for
+rendering modules — a `ScreenshotTest` that compares the rendered frame
+against a committed reference image. On a running Digitalis emulator:
 
 ```bash
-adb install hello-vulkan/build/outputs/apk/debug/hello-vulkan-debug.apk
-adb shell am start -n com.example.hellodigitalis/android.app.NativeActivity
+./gradlew :hello-jni:connectedDebugAndroidTest
 ```
 
-The apps are ARM64-only (`arm64-v8a`). They will not run on x86_64 devices without NativeBridge binary translation.
+In the Digitalis AOSP tree the whole suite is driven by
+`.claude/scripts/test-samples.sh`, which installs each APK, runs its
+instrumentation, and watches logcat for `Fatal signal` /
+`Undefined arm64 instruction` / `FATAL EXCEPTION`. The standalone modules are
+verified by launch + logcat instead (their pinned toolchains can't consume
+`status-test-lib`).
 
-## Digitalis Compatibility
+## Digitalis compatibility
 
-Tested on the Digitalis x86_64 emulator with ARM64-to-x86_64 binary translation.
+As of 2026-06-11, **all 83 suite-tested modules PASS** on the Digitalis
+emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream Vulkan): no
+crashes, every `StatusTest` asserts its expected result, every
+`ScreenshotTest` matches its reference. `hello-realm` passes its standalone
+launch verification (`REALM OK`).
 
-**26 PASS / 0 CRASH** for the original sample modules; the new `hello-fp-vector` regression sample is PARTIAL (3/5 vector-FP ops pass — see the table below).
+Samples are written against the full ARM64 API surface without regard to what
+the translator implements yet. A sample that crashes with
+`Undefined arm64 instruction` is a translator gap: the fix goes into
+`frameworks/libs/binary_translation/` (decoder + interpreter, plus JIT when
+applicable) — never into the sample.
 
-### Required smoke target: VulkanCapsViewer
+## Known workarounds
 
-`vulkancapsviewer/` pins Sascha Willems' [VulkanCapsViewer](https://github.com/SaschaWillems/VulkanCapsViewer) at tag 4.11 as a git submodule, with `Vulkan-Headers` v1.4.340 as its sub-submodule. `vulkancapsviewer-test/` wraps it with a smoke-test runner (`test.sh`) that installs a pre-built APK on the connected Digitalis emulator, launches the Qt activity, and watches logcat for `Undefined arm64 instruction` / `FATAL EXCEPTION` / process death.
-
-This is a **required** end-to-end translation test, not optional — it's the cross-check that the FMUL `.4S` / PAC / interpreter-fallback fixes hold together on a real Qt+Vulkan workload rather than just the unit-style `hello-fp-vector` probe. The submodules are pulled automatically by `repo sync` (the `sample/hellodigitalis` entry in `.repo/manifests/digitalis.xml` carries `sync-s="true"`) or with `git submodule update --init --recursive` in a manual clone.
-
-See `vulkancapsviewer-test/README.md` for the two paths to obtain the APK (upstream GitHub release, or a Qt-SDK build from the submodule).
-
-| Module | Status | Notes |
-|--------|--------|-------|
-| hello-vulkan | PASS | Vulkan triangle renders correctly |
-| hello-jni | PASS | Basic JNI works |
-| hello-jniCallback | PASS | JNI callbacks work |
-| exceptions | PASS | C++ exceptions work across JNI |
-| bitmap-plasma | PASS | Plasma effect renders correctly |
-| hello-gl2 | PASS | GLES 2.0 triangle renders |
-| gles3jni | PASS | GLES 3.0 instanced rendering works |
-| native-activity | PASS | NativeActivity with EGL/GLES works |
-| native-audio | PASS | OpenSL ES audio works |
-| native-codec | PASS | Media codec playback works |
-| native-midi | PASS | MIDI API loads (no device on emulator) |
-| sensor-graph | PASS | Accelerometer graph renders |
-| camera-basic | PASS | Camera2 NDK works |
-| camera-texture-view | PASS | Camera TextureView works |
-| teapots-classic | PASS | GLES 2.0 teapot renders |
-| teapots-more | PASS | GLES 3.0 instanced teapots render |
-| teapots-textured | PASS | Textured teapot renders (with ifstream workaround) |
-| endless-tunnel | PASS | 3D tunnel game runs |
-| sanitizers | PASS | Sanitizer demo runs |
-| unit-test | PASS | GoogleTest runs |
-| vectorization | PASS | SIMD benchmarks run |
-| orderfile | PASS | Order file demo runs |
-| hello-gles1 | PASS | `glGetError()` resolves through `libberberis_proxy_libGLESv1_CM.so` |
-| hello-gles3 | PASS | ES 3.2 `eglCreateContext` granted as ES 3.1 (gfxstream guest-EGL clamp); renders a deterministic pattern |
-| hello-lynx | PASS | Lynx engine + PrimJS JS runtime execute the prebuilt `.lynx.bundle`; ReactLynx page renders under translation |
-| hello-mmkv | PASS | Tencent MMKV `libmmkv.so` loads; int/bool/long/double/string/bytes round-trip through MMKV's mmap-backed native store |
-| hello-aaudio | PASS | `AAudio_createStreamBuilder` resolves through `libberberis_proxy_libaaudio.so` |
-| hello-binder-ndk | PASS | `AIBinder_Class_define` / `AIBinder_new` resolve through `libberberis_proxy_libbinder_ndk.so` |
-| hello-nnapi | PASS | `ANeuralNetworks_getDeviceCount` resolves through `libberberis_proxy_libneuralnetworks.so` |
-| hello-fp-vector | PARTIAL | `.4S`/`.2D` FMUL/FADD/FSUB pass; FMLA/FMLS still fail pending the JIT→interpreter Vd-flush fix (see translator commit notes) |
-
-### Known Workarounds
-
-- **teapots-textured** (`ndk_helper/JNIHelper.cpp`): `std::ifstream` construction is wrapped in `try { … } catch (...)` and falls through to `AAssetManager` on any exception. The fallback path is the standard way to read APK assets anyway, so this is the right shape long-term whether or not the translator-side issue (`std::locale` construction throwing) is later fixed.
+- **teapots-textured** (`ndk_helper/JNIHelper.cpp`): `std::ifstream`
+  construction is wrapped in `try { … } catch (...)` and falls through to
+  `AAssetManager` on any exception. The fallback path is the standard way to
+  read APK assets anyway, so this is the right shape long-term whether or not
+  the translator-side issue (`std::locale` construction throwing) is later
+  fixed.
