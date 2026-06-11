@@ -228,12 +228,3 @@ the translator implements yet. A sample that crashes with
 `Undefined arm64 instruction` is a translator gap: the fix goes into
 `frameworks/libs/binary_translation/` (decoder + interpreter, plus JIT when
 applicable) — never into the sample.
-
-## Known workarounds
-
-- **teapots-textured** (`ndk_helper/JNIHelper.cpp`): `std::ifstream`
-  construction is wrapped in `try { … } catch (...)` and falls through to
-  `AAssetManager` on any exception. The fallback path is the standard way to
-  read APK assets anyway, so this is the right shape long-term whether or not
-  the translator-side issue (`std::locale` construction throwing) is later
-  fixed.
