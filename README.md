@@ -217,11 +217,13 @@ verified by launch + logcat instead (their pinned toolchains can't consume
 
 ## Digitalis compatibility
 
-As of 2026-06-11, **all 83 suite-tested modules PASS** on the Digitalis
-emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream Vulkan): no
-crashes, every `StatusTest` asserts its expected result, every
-`ScreenshotTest` matches its reference. `hello-realm` passes its standalone
-launch verification (`REALM OK`).
+As of 2026-06-13, **all 83 suite-tested modules PASS** on the Digitalis
+emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream Vulkan),
+verified across all three harness modes: liveness (83/83), `StatusTest`
+assertions (69/69), and `ScreenshotTest` pixel-compares (13/13) — no crashes,
+every status assertion meets its expected result, every rendered frame matches
+its reference. The two standalone modules pass their launch verification too:
+`hello-realm` (`REALM OK`) and `hello-qt` (Qt window up, no fatal signal).
 
 Samples are written against the full ARM64 API surface without regard to what
 the translator implements yet. A sample that crashes with
