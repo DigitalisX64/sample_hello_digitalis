@@ -18,9 +18,9 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (84 samples)
+## Module catalog (85 samples)
 
-82 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+83 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
@@ -50,7 +50,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | vectorization | SIMD vectorization benchmarks |
 | orderfile | Linker order-file optimization |
 
-### Graphics & proxy-library smoke tests (7)
+### Graphics & proxy-library smoke tests (8)
 
 | Module | Exercises |
 |--------|-----------|
@@ -61,6 +61,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-aaudio | AAudio stream builder through `libberberis_proxy_libaaudio` |
 | hello-binder-ndk | NDK binder define/new + host-thread callback round-trip |
 | hello-nnapi | NNAPI device enumeration through `libberberis_proxy_libneuralnetworks` |
+| hello-webview-functor | `libwebviewchromium_plat_support` WebView hardware-accel draw-functor registration (RegisterDrawFunctor/RegisterDrawGLFunctor/RegisterGraphicsUtils) |
 
 ### ARM extension & ABI probes (21)
 
@@ -217,10 +218,10 @@ verified by launch + logcat instead (their pinned toolchains can't consume
 
 ## Digitalis compatibility
 
-As of 2026-06-13, **all 83 suite-tested modules PASS** on the Digitalis
+As of 2026-06-15, **all 84 suite-tested modules PASS** on the Digitalis
 emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream Vulkan),
-verified across all three harness modes: liveness (83/83), `StatusTest`
-assertions (69/69), and `ScreenshotTest` pixel-compares (13/13) — no crashes,
+verified across all three harness modes: liveness (84/84), `StatusTest`
+assertions (70/70), and `ScreenshotTest` pixel-compares (13/13) — no crashes,
 every status assertion meets its expected result, every rendered frame matches
 its reference. The two standalone modules pass their launch verification too:
 `hello-realm` (`REALM OK`) and `hello-qt` (Qt window up, no fatal signal).
