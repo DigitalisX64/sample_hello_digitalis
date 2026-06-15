@@ -18,11 +18,17 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (85 samples)
+## Module catalog (101 samples)
 
-83 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+99 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
+
+Four further third-party-library modules — `hello-javet`, `hello-maplibre`,
+`hello-mlkit-barcode` and `hello-wireguard` — are present on disk but left
+unregistered as documented known gaps (each hits a non-translator blocker on
+the current toolchain/emulator; see the gap note in `settings.gradle.kts` and
+the module's own build files).
 
 ### NDK-samples ports (21)
 
@@ -97,7 +103,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (32)
+### Third-party native libraries (48)
 
 Media:
 
@@ -118,6 +124,7 @@ Imaging:
 | hello-gif | android-gif-drawable native GIF decode |
 | hello-pdfium | PDFium page render |
 | hello-renderscript-toolkit | RenderScript replacement Toolkit intrinsics (blur, histogram, …) via the vendored `renderscript-toolkit` module |
+| hello-avif | AOMedia libavif AV1 still-image decode (SIMD inverse-transform / loop-filter) |
 
 Vision & ML:
 
@@ -130,6 +137,9 @@ Vision & ML:
 | hello-ncnn | Tencent ncnn CPU inference (fp32 pinned) |
 | hello-zxing | ZXing barcode decode |
 | hello-tesseract | Tesseract OCR |
+| hello-onnxruntime | ONNX Runtime native tensor allocation + provider query |
+| hello-mediapipe | MediaPipe Tasks Vision (FaceDetector) native TFLite inference |
+| hello-vosk | Vosk / Kaldi speech native-load smoke (model-free) |
 
 Crypto, storage & runtimes:
 
@@ -144,6 +154,28 @@ Crypto, storage & runtimes:
 | hello-zstd | zstd compression round-trip |
 | hello-quickjs | QuickJS JavaScript engine eval |
 | hello-cronet | Cronet TLS handshake |
+| hello-libsodium | libsodium crypto round-trip (XSalsa20-Poly1305 secretbox + Blake2b), via JNA |
+| hello-themis | Themis SecureCell passphrase encrypt/decrypt (BoringSSL) |
+| hello-wcdb | Tencent WCDB encrypted (SQLCipher-style) SQLite |
+| hello-argon2 | Argon2id memory-hard password hash + verify |
+| hello-couchbase | Couchbase Lite (native LiteCore) document round-trip |
+| hello-j2v8 | J2V8 — Google V8 JS engine; hot loop drives V8's optimizing JIT (IC IVAU) |
+| hello-duktape | Duktape embedded JavaScript interpreter eval |
+
+FFI & native interop:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-jna | Java Native Access — libffi dynamic calls into bionic libc |
+| hello-fbjni | Facebook fbjni JNI runtime init (JNI_OnLoad + native registration) |
+| hello-javacpp | JavaCPP off-heap native pointer alloc / read / write |
+
+Networking:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-webrtc | WebRTC native init + headless SDP offer (DataChannel) |
+| hello-libtorrent4j | libtorrent4j (libtorrent + Boost) session lifecycle + SHA-1 |
 
 AndroidX native:
 
