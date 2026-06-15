@@ -106,3 +106,33 @@ include(":hello-tesseract")
 include(":hello-oboe")
 include(":hello-ffmpeg-kit")
 include(":hello-ncnn")
+include(":hello-onnxruntime")
+include(":hello-jna")
+include(":hello-libsodium")
+include(":hello-j2v8")
+include(":hello-couchbase")
+include(":hello-avif")
+include(":hello-themis")
+include(":hello-wcdb")
+include(":hello-vosk")
+include(":hello-mediapipe")
+include(":hello-argon2")
+include(":hello-webrtc")
+include(":hello-duktape")
+// The following four sample modules are present on disk but intentionally NOT
+// registered in the suite — each is a documented known gap (the module's
+// MainActivity/build.gradle.kts carries the detail), not a verified-passing
+// sample:
+//   hello-javet      — modern V8 5.0.8 SIGABRTs under translation (the older
+//                       V8 in hello-j2v8 covers the V8-JIT-under-translation
+//                       test and passes).
+//   hello-maplibre   — libmaplibre native init throws std::wstring_convert
+//                       "from_bytes error".
+//   hello-mlkit-barcode — ML Kit's barcode pipeline requires Google Play
+//                       Services, absent on the AOSP Digitalis emulator
+//                       (the barhopper .so itself loads fine under translation).
+//   hello-wireguard  — the tunnel AAR ships a java.lang.Record that AGP 9.0.0
+//                       cannot dex (no working global-synthetics knob).
+include(":hello-fbjni")
+include(":hello-libtorrent4j")
+include(":hello-javacpp")
