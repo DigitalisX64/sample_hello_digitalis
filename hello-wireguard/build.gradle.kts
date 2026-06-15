@@ -19,31 +19,31 @@ android {
     }
     buildTypes { release { isMinifyEnabled = false } }
 }
-// KNOWN GAP (build toolchain, not a translator issue): the tunnel AAR contains a
-// java.lang.Record (com.wireguard.android.backend.Statistics$PeerStats, present
-// in every published version). Under the pinned AGP 9.0.0, the per-library
-// no-classpath dexing transform cannot desugar records — it fails with
-// "Attempt to create a global synthetic for 'Record desugaring' without a
-// global-synthetics consumer" — and AGP 9.0.0 exposes no working knob to route
-// around it (enableGlobalSynthetics / enableApiModeling no longer feed this
-// transform, core-library desugaring does not add the consumer, and the legacy
-// enableDexingArtifactTransform escape hatch was removed). The .so never reaches
-// the translator. This module is therefore left out of the suite registration
-// (settings.gradle.kts / test-samples.sh) until the toolchain can dex it; the
-// sample source itself is correct and will build once that is resolved.
 dependencies {
     implementation(libs.material)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
 
-    // WireGuard Android tunnel — the official WireGuard backend. The AAR (the
-    // "@aar" classifier forces the native-bundling artifact) ships
-    // jni/arm64-v8a/libwg-go.so: the wireguard-go userspace implementation
-    // compiled as a bionic-linked arm64 native that embeds the full Go runtime
-    // (goroutine scheduler, Go signal handling, cgo bridge). It loads and runs
+    // WireGuard Android tunnel — the official WireGuard backend. We depend on a
+    // *trimmed* copy of its classes (libs/wireguard-tunnel-*-norecord.jar) plus
+    // its native lib packaged directly as a jniLib
+    // (src/main/jniLibs/arm64-v8a/libwg-go.so): the wireguard-go userspace
+    // implementation, a bionic-linked arm64 native embedding the full Go runtime
+    // (goroutine scheduler, Go signal handling, cgo bridge) that loads and runs
     // under Berberis ARM64->x86_64 translation. GoBackend.wgVersion() is the
-    // native entry point that returns the wireguard-go version string.
-    implementation("com.wireguard.android:tunnel:1.0.20260102@aar")
+    // native entry point the sample calls (reflectively) to return the
+    // wireguard-go version string.
+    //
+    // Why trimmed: the upstream AAR ships one java.lang.Record
+    // (com.wireguard.android.backend.Statistics$PeerStats). D8 only desugars
+    // records with a global-synthetics consumer, which no AGP available here
+    // (8.2.2 / 8.7.3 / 9.0.0) enables for library dexing — every variant fails
+    // with "Attempt to create a global synthetic for 'Record desugaring'
+    // without a global-synthetics consumer." The sample never touches
+    // Statistics, so vendor-tunnel.sh drops that record (and its sole user) from
+    // the classes; with no record present the dependency dexes cleanly.
+    // Regenerate the two vendored artifacts with ./vendor-tunnel.sh.
+    implementation(files("libs/wireguard-tunnel-1.0.20260102-norecord.jar"))
 
     androidTestImplementation(project(":status-test-lib"))
 }

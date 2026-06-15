@@ -34,7 +34,8 @@ import com.wireguard.android.util.SharedLibraryLoader
  * native call spins up the full Go runtime — goroutine scheduler, Go signal
  * handling, cgo bridge — entirely under translation, and returns the
  * wireguard-go version string. The probe self-checks that the returned string
- * is non-empty and version-shaped (starts with a digit, "go", or "v"), logging
+ * is a non-empty, printable token (tagged releases look like "0.0.2023…" while
+ * module builds report a git revision such as "f333402"), logging
  * "WIREGUARD OK" or "WIREGUARD FAIL" so the suite's StatusTest can assert a
  * clean run.
  */
@@ -63,19 +64,21 @@ class MainActivity : AppCompatActivity() {
             }
             val version = wgVersion.invoke(null) as? String
 
-            val nonEmpty = !version.isNullOrEmpty()
-            // wireguard-go versions look like "0.0.20230223" / "go1.x" / "v0.x";
-            // accept anything starting with a digit, "go", or "v".
-            val looksVersionLike = version?.let {
-                val c = it.first()
-                c.isDigit() || it.startsWith("go") || it.startsWith("v")
-            } ?: false
+            // The success criterion is simply that wgVersion() returned from the
+            // Go runtime under translation with a non-empty version string. The
+            // string's exact shape varies by build: tagged releases look like
+            // "0.0.20230223" / "go1.x" / "v0.x", but module builds report the
+            // wireguard-go git revision (e.g. "f333402"), so we accept any
+            // non-empty, reasonably short, all-printable token rather than
+            // assuming a leading digit / "go" / "v".
+            val v = version?.trim()
+            val versionOk = !v.isNullOrEmpty() && v.length <= 64 &&
+                v.all { it.code in 0x21..0x7e }
 
-            if (nonEmpty && looksVersionLike) {
-                "WIREGUARD OK (wireguard-go version=\"$version\", libwg-go.so loaded)"
+            if (versionOk) {
+                "WIREGUARD OK (wireguard-go version=\"$v\", libwg-go.so loaded, Go runtime ran)"
             } else {
-                "WIREGUARD FAIL: unexpected version string nonEmpty=$nonEmpty " +
-                    "looksVersionLike=$looksVersionLike version=\"$version\""
+                "WIREGUARD FAIL: unexpected version string version=\"$version\""
             }
         } catch (t: Throwable) {
             "WIREGUARD FAIL: ${t.javaClass.simpleName}: ${t.message}"

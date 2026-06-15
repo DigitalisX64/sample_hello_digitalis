@@ -119,7 +119,8 @@ include(":hello-mediapipe")
 include(":hello-argon2")
 include(":hello-webrtc")
 include(":hello-duktape")
-// The following four sample modules are present on disk but intentionally NOT
+include(":hello-wireguard")
+// The following three sample modules are present on disk but intentionally NOT
 // registered in the suite — each is a documented known gap (the module's
 // MainActivity/build.gradle.kts carries the detail), not a verified-passing
 // sample:
@@ -131,8 +132,6 @@ include(":hello-duktape")
 //   hello-mlkit-barcode — ML Kit's barcode pipeline requires Google Play
 //                       Services, absent on the AOSP Digitalis emulator
 //                       (the barhopper .so itself loads fine under translation).
-//   hello-wireguard  — the tunnel AAR ships a java.lang.Record that AGP 9.0.0
-//                       cannot dex (no working global-synthetics knob).
 include(":hello-fbjni")
 include(":hello-libtorrent4j")
 include(":hello-javacpp")

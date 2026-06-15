@@ -18,17 +18,17 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (101 samples)
+## Module catalog (102 samples)
 
-99 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+100 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
-Four further third-party-library modules — `hello-javet`, `hello-maplibre`,
-`hello-mlkit-barcode` and `hello-wireguard` — are present on disk but left
-unregistered as documented known gaps (each hits a non-translator blocker on
-the current toolchain/emulator; see the gap note in `settings.gradle.kts` and
-the module's own build files).
+Three further third-party-library modules — `hello-javet`, `hello-maplibre`
+and `hello-mlkit-barcode` — are present on disk but left unregistered as
+documented known gaps (each hits a non-translator blocker on the current
+toolchain/emulator; see the gap note in `settings.gradle.kts` and the
+module's own build files).
 
 ### NDK-samples ports (21)
 
@@ -103,7 +103,7 @@ the module's own build files).
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (48)
+### Third-party native libraries (49)
 
 Media:
 
@@ -176,6 +176,7 @@ Networking:
 |--------|-----------|
 | hello-webrtc | WebRTC native init + headless SDP offer (DataChannel) |
 | hello-libtorrent4j | libtorrent4j (libtorrent + Boost) session lifecycle + SHA-1 |
+| hello-wireguard | wireguard-go `GoBackend.wgVersion()` — exercises the embedded Go runtime under translation (libwg-go.so; tunnel classes vendored minus an unused record, see `vendor-tunnel.sh`) |
 
 AndroidX native:
 
