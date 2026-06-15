@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.example.hellodigitalis.hellomlkitbarcode
+package com.example.hellodigitalis.hellorive
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.hellodigitalis.statustest.StatusTestRule
@@ -25,8 +25,8 @@ import org.junit.runner.RunWith
 class StatusTest {
     @get:Rule
     val rule = StatusTestRule(
-        "com.example.hellodigitalis.hellomlkitbarcode/com.example.hellomlkitbarcode.MainActivity",
-        12000
+        "com.example.hellodigitalis.hellorive/com.example.hellorive.MainActivity",
+        10000
     )
 
     @Test

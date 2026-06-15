@@ -18,17 +18,16 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (102 samples)
+## Module catalog (103 samples)
 
-100 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+101 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
-Three further third-party-library modules — `hello-javet`, `hello-maplibre`
-and `hello-mlkit-barcode` — are present on disk but left unregistered as
-documented known gaps (each hits a non-translator blocker on the current
-toolchain/emulator; see the gap note in `settings.gradle.kts` and the
-module's own build files).
+Two further third-party-library modules — `hello-javet` and `hello-maplibre` —
+are present on disk but left unregistered as documented known gaps (each hits a
+non-translator blocker on the current toolchain/emulator; see the gap note in
+`settings.gradle.kts` and the module's own build files).
 
 ### NDK-samples ports (21)
 
@@ -103,7 +102,7 @@ module's own build files).
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (49)
+### Third-party native libraries (50)
 
 Media:
 
@@ -125,6 +124,7 @@ Imaging:
 | hello-pdfium | PDFium page render |
 | hello-renderscript-toolkit | RenderScript replacement Toolkit intrinsics (blur, histogram, …) via the vendored `renderscript-toolkit` module |
 | hello-avif | AOMedia libavif AV1 still-image decode (SIMD inverse-transform / loop-filter) |
+| hello-rive | Rive native vector-animation runtime — parses a .riv document and inspects its artboard/animations (librive-android.so) |
 
 Vision & ML:
 
@@ -135,7 +135,7 @@ Vision & ML:
 | hello-litert-llm | LiteRT-LM on-device LLM runtime |
 | hello-pytorch | PyTorch Mobile inference |
 | hello-ncnn | Tencent ncnn CPU inference (fp32 pinned) |
-| hello-zxing | ZXing barcode decode |
+| hello-zxing | zxing-cpp native C++ barcode decode (libzxingcpp_android.so; Java ZXing used only to synthesize the test QR) |
 | hello-tesseract | Tesseract OCR |
 | hello-onnxruntime | ONNX Runtime native tensor allocation + provider query |
 | hello-mediapipe | MediaPipe Tasks Vision (FaceDetector) native TFLite inference |

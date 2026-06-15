@@ -116,11 +116,12 @@ include(":hello-themis")
 include(":hello-wcdb")
 include(":hello-vosk")
 include(":hello-mediapipe")
+include(":hello-rive")
 include(":hello-argon2")
 include(":hello-webrtc")
 include(":hello-duktape")
 include(":hello-wireguard")
-// The following three sample modules are present on disk but intentionally NOT
+// The following two sample modules are present on disk but intentionally NOT
 // registered in the suite — each is a documented known gap (the module's
 // MainActivity/build.gradle.kts carries the detail), not a verified-passing
 // sample:
@@ -129,9 +130,10 @@ include(":hello-wireguard")
 //                       test and passes).
 //   hello-maplibre   — libmaplibre native init throws std::wstring_convert
 //                       "from_bytes error".
-//   hello-mlkit-barcode — ML Kit's barcode pipeline requires Google Play
-//                       Services, absent on the AOSP Digitalis emulator
-//                       (the barhopper .so itself loads fine under translation).
+// (ML Kit barcode was dropped — its pipeline requires Google Play Services,
+// absent on the AOSP Digitalis emulator — and replaced by hello-rive, a native
+// vector-animation runtime; native barcode is already covered by hello-zxing,
+// which decodes via the native C++ zxing-cpp runtime.)
 include(":hello-fbjni")
 include(":hello-libtorrent4j")
 include(":hello-javacpp")
