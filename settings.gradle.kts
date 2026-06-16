@@ -121,13 +121,11 @@ include(":hello-argon2")
 include(":hello-webrtc")
 include(":hello-duktape")
 include(":hello-wireguard")
-// The following two sample modules are present on disk but intentionally NOT
-// registered in the suite — each is a documented known gap (the module's
+include(":hello-javet")
+// The following sample module is present on disk but intentionally NOT
+// registered in the suite — a documented known gap (the module's
 // MainActivity/build.gradle.kts carries the detail), not a verified-passing
 // sample:
-//   hello-javet      — modern V8 5.0.8 SIGABRTs under translation (the older
-//                       V8 in hello-j2v8 covers the V8-JIT-under-translation
-//                       test and passes).
 //   hello-maplibre   — libmaplibre native init throws std::wstring_convert
 //                       "from_bytes error".
 // (ML Kit barcode was dropped — its pipeline requires Google Play Services,

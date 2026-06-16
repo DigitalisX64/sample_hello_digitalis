@@ -33,7 +33,16 @@ dependencies {
     // artifact is required for the on-device arm64 .so. V8's optimizing
     // compiler (TurboFan/Sparkplug) generates and re-patches arm64 machine
     // code at runtime, exercising self-modifying code / IC IVAU handling.
-    implementation("com.caoccao.javet:javet-v8-android:5.0.8")
+    //
+    // Pinned to 4.1.7 (not the newest 5.0.x): javet-v8-android 5.0.x ships an
+    // internally-inconsistent arm64 build — the V8Native JNI bridge is compiled
+    // with V8_ENABLE_SANDBOX/pointer-compression on, but the bundled arm64 V8
+    // library is built with them off — so v8::V8::Initialize() aborts with
+    // "Embedder-vs-V8 build configuration mismatch" on ANY arm64 (including a
+    // real device), independent of translation. 4.1.7's arm64 artifacts are
+    // consistent (both sandbox and pointer-compression off), so V8 initializes
+    // and still JITs at runtime, exercising the IC IVAU self-modifying-code path.
+    implementation("com.caoccao.javet:javet-v8-android:4.1.7")
 
     androidTestImplementation(project(":status-test-lib"))
 }

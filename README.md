@@ -18,15 +18,15 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (103 samples)
+## Module catalog (104 samples)
 
-101 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+102 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
-Two further third-party-library modules — `hello-javet` and `hello-maplibre` —
-are present on disk but left unregistered as documented known gaps (each hits a
-non-translator blocker on the current toolchain/emulator; see the gap note in
+One further third-party-library module — `hello-maplibre` — is present on disk
+but left unregistered as a documented known gap (it hits a non-translator
+blocker on the current toolchain/emulator; see the gap note in
 `settings.gradle.kts` and the module's own build files).
 
 ### NDK-samples ports (21)
@@ -102,7 +102,7 @@ non-translator blocker on the current toolchain/emulator; see the gap note in
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (50)
+### Third-party native libraries (51)
 
 Media:
 
@@ -161,6 +161,7 @@ Crypto, storage & runtimes:
 | hello-couchbase | Couchbase Lite (native LiteCore) document round-trip |
 | hello-j2v8 | J2V8 — Google V8 JS engine; hot loop drives V8's optimizing JIT (IC IVAU) |
 | hello-duktape | Duktape embedded JavaScript interpreter eval |
+| hello-javet | Javet — Google V8 JS engine; 5000-run hot loop drives V8's optimizing JIT (IC IVAU) + string marshalling |
 
 FFI & native interop:
 
