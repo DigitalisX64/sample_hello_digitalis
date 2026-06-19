@@ -35,8 +35,11 @@ import org.maplibre.android.storage.FileSource
  * their return values:
  *   - FileSource.getApiBaseUrl(): a native round-trip that must return a
  *     non-null base URL string.
- *   - FileSource.isActivated()/activate()/deactivate(): native state that must
- *     flip false -> true -> false.
+ *   - FileSource.isActivated()/activate()/deactivate(): native activation is
+ *     reference-counted (MapLibre.getInstance()'s async resource-cache-path
+ *     setup already activates the singleton), so a single activate()/deactivate()
+ *     pair is a balanced round-trip: activate() reports activated, and
+ *     deactivate() restores the prior activation level.
  *   - OfflineManager.getInstance(context): native init that opens/creates the
  *     mbgl-cache.db SQLite database on disk, followed by a synchronous native
  *     setOfflineMapboxTileCountLimit() call.
@@ -69,7 +72,11 @@ class MainActivity : AppCompatActivity() {
             val fileSource = FileSource.getInstance(applicationContext)
             val baseUrl: String? = fileSource.apiBaseUrl
 
-            // Native activation state must flip false -> true -> false.
+            // Native activation is reference-counted. MapLibre.getInstance()'s
+            // async resource-cache-path setup already activates the singleton, so
+            // a single activate()/deactivate() pair is a balanced round-trip:
+            // activate() must report activated, and deactivate() must restore the
+            // prior activation level (not necessarily a false -> true -> false flip).
             val before = fileSource.isActivated
             fileSource.activate()
             val activated = fileSource.isActivated
@@ -82,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             offlineManager.setOfflineMapboxTileCountLimit(6000L)
 
             val baseUrlOk = !baseUrl.isNullOrEmpty()
-            val activationOk = !before && activated && !after
+            val activationOk = activated && (after == before)
 
             if (baseUrlOk && activationOk) {
                 "MAPLIBRE OK (native init; baseUrl=$baseUrl; " +
