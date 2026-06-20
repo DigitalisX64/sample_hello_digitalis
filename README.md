@@ -18,16 +18,18 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (104 samples)
+## Module catalog (114 samples)
 
-102 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+112 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
-One further third-party-library module — `hello-maplibre` — is present on disk
-but left unregistered as a documented known gap (it hits a non-translator
-blocker on the current toolchain/emulator; see the gap note in
-`settings.gradle.kts` and the module's own build files).
+One further third-party-library module — `hello-filament-render` — is present on
+disk but left unregistered as a documented known gap: Filament's render-backend
+driver SIGSEGVs under translation when it drives a real SwapChain (both the OpenGL
+and the Vulkan backend), while Filament's native engine itself works (see the
+registered `hello-filament`). See the gap note in `settings.gradle.kts` and the
+module's own header.
 
 ### NDK-samples ports (21)
 
@@ -102,7 +104,7 @@ blocker on the current toolchain/emulator; see the gap note in
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (51)
+### Third-party native libraries (62)
 
 Media:
 
@@ -125,6 +127,11 @@ Imaging:
 | hello-renderscript-toolkit | RenderScript replacement Toolkit intrinsics (blur, histogram, …) via the vendored `renderscript-toolkit` module |
 | hello-avif | AOMedia libavif AV1 still-image decode (SIMD inverse-transform / loop-filter) |
 | hello-rive | Rive native vector-animation runtime — parses a .riv document and inspects its artboard/animations (librive-android.so) |
+| hello-libyuv | Google libyuv ARGB↔I420 (YUV 4:2:0) NEON color conversion round-trip (libyuv_android.so) |
+| hello-leptonica | Leptonica native image processing (PIX create / pixel round-trip / pixScale), via JavaCPP |
+| hello-maplibre | MapLibre Native map renderer init (was a documented gap; now passing after the free-quarantine fix) |
+| hello-filament | Google Filament native engine + GPU-resource allocation, headless (libfilament-jni.so) |
+| hello-gltfio | Filament gltfio native glTF 2.0 parse of an embedded triangle (libgltfio-jni.so) |
 
 Vision & ML:
 
@@ -152,6 +159,8 @@ Crypto, storage & runtimes:
 | hello-objectbox | ObjectBox store round-trip |
 | hello-mmkv | Tencent MMKV mmap-backed key-value store |
 | hello-zstd | zstd compression round-trip |
+| hello-snappy | Google Snappy native compression round-trip (snappy-java; arm64 native + libc++_shared delivered via jniLibs) |
+| hello-secp256k1 | libsecp256k1 EC crypto — pubkey derive, ECDSA sign/verify, tamper-reject, ECDH agree (ACINQ arm64 native) |
 | hello-quickjs | QuickJS JavaScript engine eval |
 | hello-cronet | Cronet TLS handshake |
 | hello-libsodium | libsodium crypto round-trip (XSalsa20-Poly1305 secretbox + Blake2b), via JNA |
@@ -162,6 +171,15 @@ Crypto, storage & runtimes:
 | hello-j2v8 | J2V8 — Google V8 JS engine; hot loop drives V8's optimizing JIT (IC IVAU) |
 | hello-duktape | Duktape embedded JavaScript interpreter eval |
 | hello-javet | Javet — Google V8 JS engine; 5000-run hot loop drives V8's optimizing JIT (IC IVAU) + string marshalling |
+
+Math, science & physics:
+
+| Module | Exercises |
+|--------|-----------|
+| hello-openblas | OpenBLAS cblas_sgemm / sdot — dense FP matrix kernels (NEON FMA), via JavaCPP |
+| hello-fftw | FFTW forward complex 1D DFT, peak-bin verification — complex-FP butterflies, via JavaCPP |
+| hello-gsl | GNU Scientific Library special functions (bessel/gamma/erf), double-precision, via JavaCPP |
+| hello-box2d | libGDX Box2D native physics — gravity drop + collision/constraint solver (libgdx-box2d.so) |
 
 FFI & native interop:
 
