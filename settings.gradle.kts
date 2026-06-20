@@ -131,3 +131,19 @@ include(":hello-fbjni")
 include(":hello-libtorrent4j")
 include(":hello-javacpp")
 include(":hello-snappy")
+include(":hello-libyuv")
+include(":hello-secp256k1")
+include(":hello-filament")
+include(":hello-gltfio")
+include(":hello-openblas")
+include(":hello-fftw")
+include(":hello-gsl")
+include(":hello-leptonica")
+include(":hello-box2d")
+// hello-filament-render is present on disk but intentionally NOT registered — a
+// documented known gap: Filament's render-backend driver (both the OpenGL and the
+// Vulkan backend) SIGSEGVs under translation when it drives a real SwapChain,
+// whereas Filament's native engine itself works (see the registered hello-filament
+// headless smoke). Kept on disk so it becomes a live screenshot sample once the
+// translator handles Filament's backend render path.
+// include(":hello-filament-render")
