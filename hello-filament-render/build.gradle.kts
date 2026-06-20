@@ -28,5 +28,9 @@ dependencies {
     // ARM64->x86_64 translation. The AAR bundles the arm64-v8a native straight
     // into the APK's jniLibs, so no extra jniLibs/sourceSets wiring is needed.
     implementation("com.google.android.filament:filament-android:1.72.0")
+    // gltfio — Filament's native glTF loader (arm64-v8a/libgltfio-jni.so) plus its
+    // ubershader MaterialProvider, so the embedded glTF cube is parsed and shaded
+    // without any offline-compiled .filamat material.
+    implementation("com.google.android.filament:gltfio-android:1.72.0")
     androidTestImplementation(project(":screenshot-test-lib"))
 }

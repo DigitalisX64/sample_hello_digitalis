@@ -18,22 +18,11 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (114 samples)
+## Module catalog (115 samples)
 
-112 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+113 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
-
-One further third-party-library module — `hello-filament-render` — is present on
-disk but left unregistered as a documented known gap. Root-caused: when Filament
-creates the on-screen SwapChain, its Android platform layer (shared by both the
-OpenGL and Vulkan backends) calls `dlopen("libgui.so")`; Digitalis does not provide
-`libgui.so` as a guest library (a large C++/binder/SurfaceFlinger system lib), so
-the dlopen returns NULL and the guest then executes a host address →
-`berberis_HandleNoExec` SIGSEGV — the known missing-`libgui.so` guest-library gap,
-not a translator instruction bug. Filament's native engine itself works (see the
-registered `hello-filament`). See the gap note in `settings.gradle.kts` and the
-module's own header.
 
 ### NDK-samples ports (21)
 
@@ -135,6 +124,7 @@ Imaging:
 | hello-leptonica | Leptonica native image processing (PIX create / pixel round-trip / pixScale), via JavaCPP |
 | hello-maplibre | MapLibre Native map renderer init (was a documented gap; now passing after the free-quarantine fix) |
 | hello-filament | Google Filament native engine + GPU-resource allocation, headless (libfilament-jni.so) |
+| hello-filament-render | Google Filament on-screen Vulkan render of a glTF cube model loaded via gltfio (screenshot test); enabled by the guest libgui.so stub |
 | hello-gltfio | Filament gltfio native glTF 2.0 parse of an embedded triangle (libgltfio-jni.so) |
 
 Vision & ML:
