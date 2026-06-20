@@ -122,12 +122,7 @@ include(":hello-webrtc")
 include(":hello-duktape")
 include(":hello-wireguard")
 include(":hello-javet")
-// The following sample module is present on disk but intentionally NOT
-// registered in the suite — a documented known gap (the module's
-// MainActivity/build.gradle.kts carries the detail), not a verified-passing
-// sample:
-//   hello-maplibre   — libmaplibre native init throws std::wstring_convert
-//                       "from_bytes error".
+include(":hello-maplibre")
 // (ML Kit barcode was dropped — its pipeline requires Google Play Services,
 // absent on the AOSP Digitalis emulator — and replaced by hello-rive, a native
 // vector-animation runtime; native barcode is already covered by hello-zxing,
