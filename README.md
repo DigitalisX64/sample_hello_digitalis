@@ -18,9 +18,9 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (115 samples)
+## Module catalog (116 samples)
 
-113 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+114 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
