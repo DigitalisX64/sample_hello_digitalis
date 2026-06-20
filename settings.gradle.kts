@@ -141,9 +141,13 @@ include(":hello-gsl")
 include(":hello-leptonica")
 include(":hello-box2d")
 // hello-filament-render is present on disk but intentionally NOT registered — a
-// documented known gap: Filament's render-backend driver (both the OpenGL and the
-// Vulkan backend) SIGSEGVs under translation when it drives a real SwapChain,
-// whereas Filament's native engine itself works (see the registered hello-filament
-// headless smoke). Kept on disk so it becomes a live screenshot sample once the
-// translator handles Filament's backend render path.
+// documented known gap. Root-caused: Filament's Android platform layer (shared by
+// BOTH the OpenGL and Vulkan backends) dlopen()s libgui.so when it creates the
+// on-screen SwapChain; Digitalis does not provide libgui.so as a guest library
+// (it is a large C++/binder/SurfaceFlinger system lib), so the dlopen returns
+// NULL and the guest then executes a host address -> berberis_HandleNoExec SIGSEGV
+// (the same missing-libgui.so class seen elsewhere, not a translator instruction
+// bug). Filament's native engine itself works (see the registered hello-filament
+// headless smoke). Becomes a live screenshot sample once a guest libgui.so is
+// provided.
 // include(":hello-filament-render")

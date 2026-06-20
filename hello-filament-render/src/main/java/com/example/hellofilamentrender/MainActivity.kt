@@ -50,14 +50,17 @@ import com.google.android.filament.android.UiHelper
  * this still exercises Filament's swap-chain acquisition, view/camera setup, and
  * frame submission — it just yields a deterministic, perfectly uniform frame.
  *
- * KNOWN GAP (not registered in the suite): Filament's render-backend DRIVER
- * SIGSEGVs under translation as soon as it drives a real SwapChain — both the
- * OpenGL backend (crashes on the driver thread after engine init) and the Vulkan
- * backend (crashes during Engine.create). Filament's native engine itself works
- * (see the registered hello-filament headless smoke); only this on-surface render
- * path is unsupported so far. This module is kept on disk so it becomes a live
- * screenshot sample once the translator handles Filament's backend render path.
- * Because the color never changes and nothing animates, every frame is
+ * KNOWN GAP (not registered in the suite). Root-caused: when Filament creates the
+ * on-screen SwapChain, its Android platform layer (shared by BOTH the OpenGL and
+ * Vulkan backends — the Vulkan backend otherwise initialises fully: it selects the
+ * GFXStream device and reaches this setup) calls dlopen("libgui.so") on the driver
+ * thread. Digitalis does not provide libgui.so as a guest library (it is a large
+ * C++/binder/SurfaceFlinger system lib), so the dlopen returns NULL and the guest
+ * then executes a host address -> berberis_HandleNoExec SIGSEGV. This is the known
+ * missing-libgui.so guest-library gap, not a translator instruction bug; Filament's
+ * native engine itself works (see the registered hello-filament headless smoke).
+ * Kept on disk so it becomes a live screenshot sample once a guest libgui.so is
+ * provided. Because the color never changes and nothing animates, every frame is
  * byte-identical, which is exactly what the suite's ScreenshotTest needs.
  *
  * Render flow per frame (Choreographer-driven):

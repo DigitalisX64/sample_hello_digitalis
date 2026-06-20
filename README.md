@@ -25,9 +25,13 @@ build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
 One further third-party-library module — `hello-filament-render` — is present on
-disk but left unregistered as a documented known gap: Filament's render-backend
-driver SIGSEGVs under translation when it drives a real SwapChain (both the OpenGL
-and the Vulkan backend), while Filament's native engine itself works (see the
+disk but left unregistered as a documented known gap. Root-caused: when Filament
+creates the on-screen SwapChain, its Android platform layer (shared by both the
+OpenGL and Vulkan backends) calls `dlopen("libgui.so")`; Digitalis does not provide
+`libgui.so` as a guest library (a large C++/binder/SurfaceFlinger system lib), so
+the dlopen returns NULL and the guest then executes a host address →
+`berberis_HandleNoExec` SIGSEGV — the known missing-`libgui.so` guest-library gap,
+not a translator instruction bug. Filament's native engine itself works (see the
 registered `hello-filament`). See the gap note in `settings.gradle.kts` and the
 module's own header.
 
