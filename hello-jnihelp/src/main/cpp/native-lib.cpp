@@ -28,6 +28,7 @@ using NioPointerFn = jlong (*)(JNIEnv*, jobject);
 using NioBaseArrayFn = jarray (*)(JNIEnv*, jobject);
 using NioBaseArrayOffsetFn = jint (*)(JNIEnv*, jobject);
 using RegisterNativeMethodsFn = jint (*)(JNIEnv*, const char*, const JNINativeMethod*, jint);
+using ThrowExceptionFmtFn = int (*)(JNIEnv*, const char*, const char*, ...);
 
 // Native impl rebound onto MainActivity.nativeRegisteredProbe via the
 // jniRegisterNativeMethods trampoline probe below.
@@ -61,9 +62,11 @@ std::string Probe(JNIEnv* env) {
       reinterpret_cast<NioBaseArrayOffsetFn>(dlsym(h, "jniGetNioBufferBaseArrayOffset"));
   auto register_natives =
       reinterpret_cast<RegisterNativeMethodsFn>(dlsym(h, "jniRegisterNativeMethods"));
+  auto throw_fmt = reinterpret_cast<ThrowExceptionFmtFn>(dlsym(h, "jniThrowExceptionFmt"));
 
   if (!throw_exc || !throw_npe || !throw_rte || !throw_io || !throw_errno || !log_exc ||
-      !create_str || !nio_fields || !nio_ptr || !nio_base || !nio_base_off || !register_natives) {
+      !create_str || !nio_fields || !nio_ptr || !nio_base || !nio_base_off || !register_natives ||
+      !throw_fmt) {
     return "FAIL: dlsym of a libnativehelper jni* helper returned null";
   }
 
@@ -151,10 +154,46 @@ std::string Probe(JNIEnv* env) {
   expect(rc == JNI_OK, "jniRegisterNativeMethods(rc)");
   if (env->ExceptionCheck()) env->ExceptionClear();
 
+  // (13) jniThrowExceptionFmt: the only varargs helper. The Digitalis trampoline
+  // walks the guest variadic tail per AAPCS64 and formats the message host-side,
+  // so verifying the *formatted message* (not just that an exception is pending)
+  // is what proves each argument was forwarded from the right register/stack slot.
+  // The eight conversions span register-passed and stack-passed varargs (x3..x7
+  // then the stack on arm64) and every FormatBufferImpl specifier this path
+  // supports: %s %d %u %x %c %p %ld %zu.
+  throw_fmt(env, "java/lang/IllegalArgumentException",
+            "s=%s d=%d u=%u x=0x%x c=%c p=%p ld=%ld zu=%zu", "abc", -7, 42u, 0xBEEFu, 'Z',
+            reinterpret_cast<void*>(0x1234), static_cast<long>(-100000), static_cast<size_t>(65536));
+  bool fmt_pending = env->ExceptionCheck() == JNI_TRUE;
+  expect(fmt_pending, "jniThrowExceptionFmt(no-pending)");
+  if (fmt_pending) {
+    jthrowable t = env->ExceptionOccurred();
+    env->ExceptionClear();
+    const char* want = "s=abc d=-7 u=42 x=0xbeef c=Z p=0x1234 ld=-100000 zu=65536";
+    std::string got;
+    jclass tc = env->GetObjectClass(t);
+    jmethodID gm = env->GetMethodID(tc, "getMessage", "()Ljava/lang/String;");
+    auto jmsg = static_cast<jstring>(env->CallObjectMethod(t, gm));
+    if (jmsg != nullptr) {
+      const char* c = env->GetStringUTFChars(jmsg, nullptr);
+      if (c != nullptr) {
+        got = c;
+        env->ReleaseStringUTFChars(jmsg, c);
+      }
+      env->DeleteLocalRef(jmsg);
+    }
+    expect(got == want, "jniThrowExceptionFmt(msg)");
+    if (got != want) {
+      fails += " got[" + got + "]";
+    }
+    env->DeleteLocalRef(tc);
+    env->DeleteLocalRef(t);
+  }
+
   if (!fails.empty()) {
     return "FAIL: libnativehelper helper(s):" + fails;
   }
-  return "jnihelp OK: all 12 libnativehelper jni* trampolines verified";
+  return "jnihelp OK: all 13 libnativehelper jni* trampolines verified";
 }
 
 }  // namespace
