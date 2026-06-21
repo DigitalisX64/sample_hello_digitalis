@@ -18,9 +18,9 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (116 samples)
+## Module catalog (126 samples)
 
-114 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+124 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
@@ -97,7 +97,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (62)
+### Third-party native libraries (72)
 
 Media:
 
@@ -107,6 +107,7 @@ Media:
 | hello-libvlc | libVLC playback |
 | hello-ffmpeg-kit | FFmpegKit — FFprobe media information over a bundled WAV |
 | hello-oboe | Oboe — open/start/write/stop an audio stream |
+| hello-opus | Opus audio codec — PCM encode→decode round-trip (SILK/CELT fixed-point), via techery/opus_android (libopustool.so) |
 
 Imaging:
 
@@ -126,6 +127,8 @@ Imaging:
 | hello-filament | Google Filament native engine + GPU-resource allocation, headless (libfilament-jni.so) |
 | hello-filament-render | Google Filament on-screen Vulkan render of a glTF cube model loaded via gltfio (screenshot test); enabled by the guest libgui.so stub |
 | hello-gltfio | Filament gltfio native glTF 2.0 parse of an embedded triangle (libgltfio-jni.so) |
+| hello-mupdf | Artifex MuPDF (fitz) native PDF page rasterization — alternate render engine to PDFium (libmupdf_java.so) |
+| hello-libwebp | Google libwebp WebP lossless encode→decode round-trip (VP8L Huffman / color transforms), via aureusapps webp-android |
 
 Vision & ML:
 
@@ -165,6 +168,12 @@ Crypto, storage & runtimes:
 | hello-j2v8 | J2V8 — Google V8 JS engine; hot loop drives V8's optimizing JIT (IC IVAU) |
 | hello-duktape | Duktape embedded JavaScript interpreter eval |
 | hello-javet | Javet — Google V8 JS engine; 5000-run hot loop drives V8's optimizing JIT (IC IVAU) + string marshalling |
+| hello-lua | Native Lua 5.4 VM — runs a Lua script and reads results back via luajava (liblua54.so) |
+| hello-leveldb | Google LevelDB LSM-tree key-value store — put/get/delete round-trip (libleveldb.so) |
+| hello-libarchive | libarchive multi-format archive read (ustar) — format detection + entry decode (libarchive-jni.so) |
+| hello-pcre2 | PCRE2 regex — pcre2_jit_compile (sljit) + JIT/interpreted match; the JIT path exercises IC IVAU self-modified-code invalidation |
+| hello-libxml2 | libxml2 XML parser — xmlReadMemory + DOM tree walk (recursive-descent, byte-at-a-time, no SIMD) |
+| hello-sentry-ndk | Sentry NDK native crash backend init + signal-handler stack-unwinder install (libsentry.so) |
 
 Math, science & physics:
 
@@ -174,6 +183,7 @@ Math, science & physics:
 | hello-fftw | FFTW forward complex 1D DFT, peak-bin verification — complex-FP butterflies, via JavaCPP |
 | hello-gsl | GNU Scientific Library special functions (bessel/gamma/erf), double-precision, via JavaCPP |
 | hello-box2d | libGDX Box2D native physics — gravity drop + collision/constraint solver (libgdx-box2d.so) |
+| hello-bullet | libGDX Bullet 3D rigid-body physics — gravity drop + collision broadphase/constraint solver (libgdx-bullet.so) |
 
 FFI & native interop:
 
