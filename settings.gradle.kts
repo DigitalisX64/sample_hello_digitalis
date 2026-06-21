@@ -16,6 +16,8 @@ dependencyResolutionManagement {
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         // JitPack for libraries distributed only via GitHub releases.
         maven { url = uri("https://jitpack.io") }
+        // Artifex hosts the MuPDF (fitz) Android AAR here; it is not on Maven Central.
+        maven { url = uri("https://maven.ghostscript.com") }
     }
 }
 
@@ -141,3 +143,7 @@ include(":hello-gsl")
 include(":hello-leptonica")
 include(":hello-box2d")
 include(":hello-filament-render")
+include(":hello-lua")
+include(":hello-mupdf")
+include(":hello-sentry-ndk")
+include(":hello-bullet")
