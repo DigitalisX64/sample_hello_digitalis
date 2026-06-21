@@ -60,6 +60,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-msaa | 1x/2x/4x/8x multisample FBO grid, resolved into one frame |
 | hello-aaudio | AAudio stream builder through `libberberis_proxy_libaaudio` |
 | hello-binder-ndk | NDK binder define/new + host-thread callback round-trip |
+| hello-jnihelp | Drives + self-checks the 12 covered `libnativehelper` `jni*` trampolines (throw-family, jniCreateString, jniGetNioBuffer*, jniLogException, jniRegisterNativeMethods) |
 | hello-nnapi | NNAPI device enumeration through `libberberis_proxy_libneuralnetworks` |
 | hello-webview-functor | `libwebviewchromium_plat_support` WebView hardware-accel draw-functor registration (RegisterDrawFunctor/RegisterDrawGLFunctor/RegisterGraphicsUtils) |
 
