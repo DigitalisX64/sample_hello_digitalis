@@ -99,6 +99,11 @@ extern "C" {
 extern void* memrchr(const void*, int, size_t);
 extern char* strchrnul(const char*, int);
 extern char* stpcpy(char* __restrict, const char* __restrict);
+// FORTIFY _chk variants: an extra trailing destination-size argument; bionic
+// aborts only if the copy/set length exceeds it. Declared explicitly so we call
+// the exported symbols rather than the compiler's inline fortify rewrite.
+extern void* __memcpy_chk(void*, const void*, size_t, size_t);
+extern void* __memset_chk(void*, int, size_t, size_t);
 }
 
 void probe_string_mem() {
@@ -117,6 +122,17 @@ void probe_string_mem() {
   char* end = stpcpy(dst, "hello");
   CHECK(end == dst + 5, "stpcpy end-ptr");
   CHECK(strcmp(dst, "hello") == 0, "stpcpy contents");
+
+  // __memcpy_chk / __memset_chk: dst_len >= n so no fortify abort; verify the
+  // returned pointer (== dst) and the resulting bytes.
+  char cbuf[16] = {};
+  void* mc = __memcpy_chk(cbuf, "abcdef", 6, sizeof(cbuf));
+  CHECK(mc == cbuf, "__memcpy_chk ret");
+  CHECK(memcmp(cbuf, "abcdef", 6) == 0, "__memcpy_chk contents");
+  void* ms = __memset_chk(cbuf, 'Z', 4, sizeof(cbuf));
+  CHECK(ms == cbuf, "__memset_chk ret");
+  CHECK(cbuf[0] == 'Z' && cbuf[1] == 'Z' && cbuf[2] == 'Z' && cbuf[3] == 'Z',
+        "__memset_chk contents");
 }
 
 void probe_posix_misc(const char* writable_dir) {
