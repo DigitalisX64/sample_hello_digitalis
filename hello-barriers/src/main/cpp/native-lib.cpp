@@ -1,29 +1,18 @@
 // Integration-level probes for ARM64 memory and synchronisation
 // barriers.
 //
-// Locks in the audit: every barrier-class HINT and the
-// CRn=0011 barrier family must decode to Nop() on Digitalis (we run above the
-// kernel and inherit host memory ordering via x86-TSO; the locked atomics
-// already provide release/acquire ordering ARM needs).  This sample emits
-// one of each barrier mnemonic via inline asm; the probe is "did we survive
-// past the barrier without an Undefined arm64 instruction SIGILL?"
+// Every barrier-class HINT and the CRn=0011 barrier family must DECODE and
+// survive (no Undefined arm64 instruction SIGILL).  Note: a full DMB/DSB
+// (SY/ISH/NSH/OSH) and STLR now lower to an MFENCE in the translator, because
+// x86 TSO gives StoreStore/LoadLoad/LoadStore for free but NOT StoreLoad; these
+// probes exercise that codegen (the barrier executes without crashing).  The
+// actual StoreLoad-ordering correctness is regressed deterministically by the
+// host test StoreLoadBarrierEmitsMfence (a multi-threaded litmus is too timing-
+// sensitive to belong in the on-device probe).
 //
 // Probe coverage:
-//   YIELD                       -- HINT #1
-//   WFE                         -- HINT #2
-//   WFI                         -- HINT #3 (user-space NOP; kernel handles
-//                                  real sleep)
-//   SEV                         -- HINT #4
-//   SEVL                        -- HINT #5
-//   DMB  ish / ishld / ishst    -- data memory barrier, three common scopes
-//   DSB  ish                    -- data sync barrier
-//   ISB                         -- instruction sync barrier
-//   CLREX                       -- clear exclusive monitor
-//   SB                          -- Armv8.5 speculation barrier
-//
-// Each probe runs the barrier instruction in a loop with a memory-clobbered
-// counter on both sides so the compiler can't elide the barrier-block as a
-// dead store.
+//   YIELD / WFE / WFI / SEV / SEVL  -- HINTs (survive)
+//   DMB ish/ishld/ishst/sy, DSB ish/sy/oshld, ISB, CLREX, SB  -- survive
 
 #include <android/log.h>
 #include <jni.h>
