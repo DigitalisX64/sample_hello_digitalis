@@ -254,6 +254,43 @@ __attribute__((noinline)) std::string RunHighPressureCheck() {
   return std::string();
 }
 
+// Test `add v.2d` (NEON 2x64-bit vector add, host PADDQ) built from GP registers
+// via DUP (dup v.2d, Xn) + INS (mov v.d[1], Xn) -- the exact pattern the hot
+// glyph-rendering region uses to advance two 64-bit pointers/counters. A
+// miscompile to a 32-bit lane add (PADDD) drops the carry between the 32-bit
+// halves of each 64-bit lane, corrupting pointers whose low half overflows.
+std::string RunVecAdd2dCheck() {
+  struct Case { uint64_t a0, a1, b0, b1; };
+  const Case cases[] = {
+      {0xFFFFFFFFull, 1, 0x00000000ull, 0},      // lane0 carries bit31->bit32
+      {0x12345678ull, 0xFFFFFFFFull, 0xF0000000ull, 2},  // lane1 carries
+      {0x7FFFFFFFFFFFFFFFull, 0x0000000100000000ull, 1, 0x00000000FFFFFFFFull},
+      {0xABCD00001234ull, 0xDEADBEEFull, 0x1000FFFFull, 0x100000000ull},
+  };
+  for (const auto& c : cases) {
+    // Build v0 = {b0(via DUP x8), then v0.d[1]=b1(via INS x23)}; v1 = {a0,a1};
+    // out = v1 + v0 (add v.2d). Use intrinsics that lower to dup/ins/add.2d.
+    uint64x2_t v1 = vcombine_u64(vcreate_u64(c.a0), vcreate_u64(c.a1));
+    uint64x2_t v0 = vdupq_n_u64(c.b0);          // dup v0.2d, x8
+    v0 = vsetq_lane_u64(c.b1, v0, 1);           // mov v0.d[1], x23  (INS general)
+    uint64x2_t out = vaddq_u64(v1, v0);         // add v0.2d, v1.2d, v0.2d
+    uint64_t lo = vgetq_lane_u64(out, 0);
+    uint64_t hi = vgetq_lane_u64(out, 1);
+    uint64_t want_lo = c.a0 + c.b0;             // true 64-bit add (wraps at 64)
+    uint64_t want_hi = c.a1 + c.b1;
+    if (lo != want_lo || hi != want_hi) {
+      char buf[200];
+      snprintf(buf, sizeof(buf),
+               "FAIL add v.2d: lane0 neon=0x%llx want=0x%llx | lane1 neon=0x%llx "
+               "want=0x%llx",
+               (unsigned long long)lo, (unsigned long long)want_lo,
+               (unsigned long long)hi, (unsigned long long)want_hi);
+      return std::string(buf);
+    }
+  }
+  return std::string();
+}
+
 constexpr int kWidth = 64;  // multiple of 8 so the NEON loop runs fully
 
 // Run the blit once with a known mask + color + destination and compare the
@@ -329,6 +366,14 @@ Java_com_example_helloglyphblit_MainActivity_probeGlyphBlit(JNIEnv* env,
   } else {
     report += "  high-pressure: " + hp_mismatch + " -> FAIL\n";
     report += "  SIMD register spill/reload MISCOMPILED -> FAIL\n";
+  }
+
+  std::string va_mismatch = RunVecAdd2dCheck();
+  if (va_mismatch.empty()) {
+    report += "  add v.2d (DUP+INS+PADDQ 64-bit) == scalar -> PASS\n";
+  } else {
+    report += "  add v.2d: " + va_mismatch + " -> FAIL\n";
+    report += "  NEON 2x64-bit vector add MISCOMPILED -> FAIL\n";
   }
 
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", report.c_str());
