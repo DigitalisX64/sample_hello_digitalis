@@ -125,6 +125,28 @@ bool test_ld1x2_b(const uint8_t* mem) {
   return true;
 }
 
+// LDTRSB/LDTRSH/LDTRSW -- unprivileged signed loads. At EL0 these are LDUR-
+// equivalent and must decode and sign-extend. The decoder previously ignored
+// bit21 at op4=0b10 and routed both register-offset and unprivileged encodings
+// to the register-offset handler, so LDTR*/STTR* were misdecoded -- either
+// Undefined (SIGILL) or a wrong-address load. Emitted via inline asm because
+// the compiler does not generate LDTR for ordinary code.
+bool test_ldtr() {
+  alignas(8) uint8_t buf[16];
+  memset(buf, 0, sizeof(buf));
+  buf[1] = 0x80;                            // ldtrsb [buf,#1] -> sign-extend
+  buf[2] = 0x00; buf[3] = 0x80;             // ldtrsh [buf,#2] = 0x8000
+  buf[4] = 0; buf[5] = 0; buf[6] = 0; buf[7] = 0x80;  // ldtrsw [buf,#4] = 0x80000000
+  uint64_t base = reinterpret_cast<uint64_t>(buf);
+  int64_t b8 = 0, h16 = 0, w32 = 0;
+  asm volatile("ldtrsb %0, [%1, #1]" : "=r"(b8) : "r"(base) : "memory");
+  asm volatile("ldtrsh %0, [%1, #2]" : "=r"(h16) : "r"(base) : "memory");
+  asm volatile("ldtrsw %0, [%1, #4]" : "=r"(w32) : "r"(base) : "memory");
+  return b8 == static_cast<int64_t>(0xFFFFFFFFFFFFFF80ULL) &&
+         h16 == static_cast<int64_t>(0xFFFFFFFFFFFF8000ULL) &&
+         w32 == static_cast<int64_t>(0xFFFFFFFF80000000ULL);
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -152,16 +174,18 @@ Java_com_example_helloldinterleave_MainActivity_probeLdInterleave(
   bool st3b  = test_st3_b(st_dst, a16, b16, c16);
   bool st4b  = test_st4_b(st_dst, a16, b16, c16, d16);
   bool ld1x2 = test_ld1x2_b(buf);
+  bool ldtr  = test_ldtr();
 
-  char msg[256];
+  char msg[320];
   snprintf(msg, sizeof(msg),
            "NEON multi-struct probe:\n"
            "  LD2.16B=%s LD2.4S=%s ST2.16B=%s\n"
            "  LD3.16B=%s LD4.16B=%s ST3.16B=%s ST4.16B=%s\n"
-           "  LD1.16B x2=%s (contiguous, must not de-interleave)",
+           "  LD1.16B x2=%s (contiguous, must not de-interleave)\n"
+           "  LDTRSB/H/SW=%s (unprivileged signed loads, sign-extend)",
            ld2b  ? "OK" : "FAIL", ld2s  ? "OK" : "FAIL", st2b  ? "OK" : "FAIL",
            ld3b  ? "OK" : "FAIL", ld4b  ? "OK" : "FAIL", st3b ? "OK" : "FAIL",
-           st4b ? "OK" : "FAIL", ld1x2 ? "OK" : "FAIL");
+           st4b ? "OK" : "FAIL", ld1x2 ? "OK" : "FAIL", ldtr ? "OK" : "FAIL");
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", msg);
   return env->NewStringUTF(msg);
 }

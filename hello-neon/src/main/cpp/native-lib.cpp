@@ -457,6 +457,26 @@ bool probe_shifts() {
     }
     if (!array_eq(got, want)) return false;
   }
+  // vqshlq_s32 / vrshlq_s32 (vector SATURATING / ROUNDING shift; SQSHL/SRSHL).
+  // A negative per-lane count is a signed ARITHMETIC right shift, with rounding
+  // (R variants add 1<<(rshift-1)) and saturation (Q variants clamp). The
+  // interpreter fallback previously treated all six saturating/rounding
+  // variable shifts as a plain LOGICAL shift, dropping signedness, rounding and
+  // saturation -- wrong for every negative-count lane.
+  {
+    alignas(16) int32_t v[4] = {-16, 16, INT32_MIN, 1};
+    alignas(16) int32_t sh[4] = {-4, -4, -2, -1};
+    alignas(16) int32_t got[4];
+    // SQSHL (no rounding): -16>>4=-1 ; 16>>4=1 ; INT_MIN>>2=0xE0000000 ; 1>>1=0.
+    vst1q_s32(got, vqshlq_s32(vld1q_s32(v), vld1q_s32(sh)));
+    int32_t wantq[4] = {-1, 1, static_cast<int32_t>(0xE0000000), 0};
+    if (!array_eq(got, wantq)) return false;
+    // SRSHL (rounding): (-16+8)>>4=-1 ; (16+8)>>4=1 ; (INT_MIN+2)>>2=0xE0000000 ;
+    // (1+1)>>1=1.
+    vst1q_s32(got, vrshlq_s32(vld1q_s32(v), vld1q_s32(sh)));
+    int32_t wantr[4] = {-1, 1, static_cast<int32_t>(0xE0000000), 1};
+    if (!array_eq(got, wantr)) return false;
+  }
   // vshll_n — shift left long by element size (SHLL): each lane widened and
   // shifted left by the source element width, landing in the high half.
   {
@@ -734,6 +754,20 @@ bool probe_permute() {
     vst1q_u8(got, vqtbl1q_u8(vld1q_u8(table), vld1q_u8(idx)));
     for (int i = 0; i < 16; ++i)
       CHECK(got[i] == table[idx[i]], "vqtbl1q_u8");
+  }
+  // vext_u8 (.8B EXT, Q=0): result = bytes[imm..imm+7] of the concatenation
+  // Vm:Vn (Vn low, Vm at byte 8). For imm=3 the high result lanes must come
+  // from b, NOT from a's stale upper register half. The interpreter previously
+  // placed Vm at byte 16, leaving it unreachable and pulling Vn's stale upper
+  // bytes into lanes 5-7 -- a byte-rearrangement that fragmented glyph bytes
+  // when a rasterizer region bailed to the interpreter (Helium garbled text).
+  {
+    alignas(8) uint8_t av[8] = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17};
+    alignas(8) uint8_t bv[8] = {0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
+    alignas(8) uint8_t got[8];
+    vst1_u8(got, vext_u8(vld1_u8(av), vld1_u8(bv), 3));
+    const uint8_t want[8] = {0x13, 0x14, 0x15, 0x16, 0x17, 0x20, 0x21, 0x22};
+    for (int i = 0; i < 8; ++i) CHECK(got[i] == want[i], "vext_u8");
   }
   return true;
 }
