@@ -127,6 +127,144 @@ int gles_roundtrip(uint32_t W, uint32_t H, GLuint prog, bool subrects, int* fx, 
   return mm;
 }
 
+// Chromium's glyph-atlas uploads use GL_UNPACK_ROW_LENGTH (the Skia A8 mask's
+// rowBytes is wider than the glyph width, for alignment) and frequently a pixel-
+// unpack buffer (PBO). The plain gles_roundtrip above uploads tightly-packed and
+// never exercises either, so a proxy mis-marshal of the unpack state or the PBO
+// path would slip through. These two functions reproduce exactly those patterns.
+
+// Upload a sub-rect from a source buffer whose row stride (ROW_LENGTH) exceeds
+// the copied width, with a non-zero GL_UNPACK_SKIP_ROWS/PIXELS — the host must
+// read the guest buffer honoring the unpack state. Returns mismatch count.
+int gles_rowlength_test(uint32_t W, uint32_t H, GLuint prog, int* fx, int* fy, int* fe, int* fg) {
+  const uint32_t stride = W + 37;       // padded row length (> W)
+  const uint32_t skip_rows = 3, skip_px = 11;
+  std::vector<uint8_t> src(static_cast<size_t>(stride) * (H + skip_rows), 0xCC);  // 0xCC = pad
+  std::vector<uint8_t> exp(static_cast<size_t>(W) * H);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      uint8_t v = static_cast<uint8_t>((x * 67u + y * 151u + 7u) & 0xFFu);
+      src[(y + skip_rows) * stride + (x + skip_px)] = v;  // only the live window
+      exp[y * W + x] = v;
+    }
+
+  GLuint tex;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, W, H, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(stride));
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, static_cast<GLint>(skip_rows));
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, static_cast<GLint>(skip_px));
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H, GL_RED, GL_UNSIGNED_BYTE, src.data());
+  // reset unpack state so the sample-render path is unaffected
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+
+  GLuint fbo, rt;
+  glGenTextures(1, &rt);
+  glBindTexture(GL_TEXTURE_2D, rt);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rt, 0);
+  glViewport(0, 0, W, H);
+  glUseProgram(prog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glUniform1i(glGetUniformLocation(prog, "tex"), 0);
+  glDrawArrays(GL_TRIANGLES, 0, 3);
+  std::vector<uint8_t> rb(static_cast<size_t>(W) * H * 4);
+  glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, rb.data());
+  int mm = 0;
+  for (uint32_t i = 0; i < W * H; i++)
+    if (rb[i * 4] != exp[i]) {
+      if (mm == 0) { *fx = i % W; *fy = i / W; *fe = exp[i]; *fg = rb[i * 4]; }
+      mm++;
+    }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glDeleteTextures(1, &tex);
+  glDeleteTextures(1, &rt);
+  glDeleteFramebuffers(1, &fbo);
+  return mm;
+}
+
+// Upload via a pixel-unpack buffer (PBO): fill a GL_PIXEL_UNPACK_BUFFER, then
+// glTexSubImage2D with a byte OFFSET (not a pointer). Also exercises ROW_LENGTH
+// against the PBO. Returns mismatch count.
+int gles_pbo_test(uint32_t W, uint32_t H, GLuint prog, int* fx, int* fy, int* fe, int* fg) {
+  const uint32_t stride = W + 16;
+  const uint32_t off_rows = 2;
+  const size_t pbo_bytes = static_cast<size_t>(stride) * (H + off_rows);
+  std::vector<uint8_t> staging(pbo_bytes, 0x77);
+  std::vector<uint8_t> exp(static_cast<size_t>(W) * H);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      uint8_t v = static_cast<uint8_t>((x * 113u + y * 41u + 19u) & 0xFFu);
+      staging[(y + off_rows) * stride + x] = v;
+      exp[y * W + x] = v;
+    }
+  GLuint pbo;
+  glGenBuffers(1, &pbo);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+  glBufferData(GL_PIXEL_UNPACK_BUFFER, static_cast<GLsizeiptr>(pbo_bytes), staging.data(),
+               GL_STREAM_DRAW);
+
+  GLuint tex;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(stride));
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, W, H, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // upload from PBO at byte offset off_rows*stride (the live data start)
+  const uintptr_t byte_off = static_cast<uintptr_t>(off_rows) * stride;
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H, GL_RED, GL_UNSIGNED_BYTE,
+                  reinterpret_cast<const void*>(byte_off));
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+  GLuint fbo, rt;
+  glGenTextures(1, &rt);
+  glBindTexture(GL_TEXTURE_2D, rt);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rt, 0);
+  glViewport(0, 0, W, H);
+  glUseProgram(prog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, tex);
+  glUniform1i(glGetUniformLocation(prog, "tex"), 0);
+  glDrawArrays(GL_TRIANGLES, 0, 3);
+  std::vector<uint8_t> rb(static_cast<size_t>(W) * H * 4);
+  glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, rb.data());
+  int mm = 0;
+  for (uint32_t i = 0; i < W * H; i++)
+    if (rb[i * 4] != exp[i]) {
+      if (mm == 0) { *fx = i % W; *fy = i / W; *fe = exp[i]; *fg = rb[i * 4]; }
+      mm++;
+    }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glDeleteTextures(1, &tex);
+  glDeleteTextures(1, &rt);
+  glDeleteFramebuffers(1, &fbo);
+  glDeleteBuffers(1, &pbo);
+  return mm;
+}
+
 }  // namespace
 
 // Called from the JNI probe in native-lib.cpp. Appends results to *out.
@@ -202,6 +340,36 @@ bool RunGlesProbe(std::string* out) {
       snprintf(buf, sizeof(buf),
                "  subrect %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n",
                atlas[s].w, atlas[s].h, mm, fx, fy, fe, fg);
+    }
+    *out += buf;
+  }
+  // ROW_LENGTH / SKIP_ROWS / SKIP_PIXELS upload (Chromium's Skia A8-mask rowBytes
+  // > width) and PBO upload (Chromium async glyph atlas) — the patterns the plain
+  // roundtrip never exercises.
+  const S rl[] = {{256, 256}, {300, 200}, {137, 59}};
+  for (int s = 0; s < 3; s++) {
+    int fx = -1, fy = -1, fe = -1, fg = -1;
+    int mm = gles_rowlength_test(rl[s].w, rl[s].h, prog, &fx, &fy, &fe, &fg);
+    total++;
+    if (mm == 0) {
+      snprintf(buf, sizeof(buf), "  rowlen  %4ux%-4u : OK\n", rl[s].w, rl[s].h);
+    } else {
+      fail++;
+      snprintf(buf, sizeof(buf),
+               "  rowlen  %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n",
+               rl[s].w, rl[s].h, mm, fx, fy, fe, fg);
+    }
+    *out += buf;
+    fx = fy = fe = fg = -1;
+    mm = gles_pbo_test(rl[s].w, rl[s].h, prog, &fx, &fy, &fe, &fg);
+    total++;
+    if (mm == 0) {
+      snprintf(buf, sizeof(buf), "  pbo     %4ux%-4u : OK\n", rl[s].w, rl[s].h);
+    } else {
+      fail++;
+      snprintf(buf, sizeof(buf),
+               "  pbo     %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n",
+               rl[s].w, rl[s].h, mm, fx, fy, fe, fg);
     }
     *out += buf;
   }
