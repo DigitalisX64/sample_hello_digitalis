@@ -1194,10 +1194,23 @@ Java_com_example_hellovktexture_MainActivity_probeVkTexture(JNIEnv* env, jobject
   report += "GLES (ANGLE) R8 probe [Chromium's actual path]:\n";
   bool gles_ok = RunGlesProbe(&report);
 
-  if (total_fail || s_fail || r_fail || g_fail || !gles_ok) {
-    LOGE("%s", report.c_str());
-  } else {
-    LOGI("%s", report.c_str());
+  // Log per line — a single multi-line __android_log_print is truncated at the
+  // ~4 KB logcat message limit, which would hide the later GLES draw-side lines.
+  {
+    bool any_fail = (total_fail || s_fail || r_fail || g_fail || !gles_ok);
+    size_t start = 0;
+    while (start < report.size()) {
+      size_t nl = report.find('\n', start);
+      std::string line = report.substr(start, nl == std::string::npos ? std::string::npos
+                                                                       : nl - start);
+      if (any_fail) {
+        LOGE("%s", line.c_str());
+      } else {
+        LOGI("%s", line.c_str());
+      }
+      if (nl == std::string::npos) break;
+      start = nl + 1;
+    }
   }
   return env->NewStringUTF(report.c_str());
 }
