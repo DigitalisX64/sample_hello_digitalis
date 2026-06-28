@@ -87,6 +87,34 @@ static const uint32_t kFragSpv[] = {
     0x0000001c, 0x000100fd, 0x00010038,
 };
 
+// Fragment shader that computes the test pattern (x*131 + y*17) & 0xFF from
+// gl_FragCoord and writes it to the red channel — used to RASTERIZE a pattern
+// directly into an R8 color attachment (the glyph-atlas fill path).
+static const uint32_t kGenR8Spv[] = {
+    0x07230203, 0x00010000, 0x000d000b, 0x0000002b, 0x00000000, 0x00020011, 0x00000001, 0x0006000b,
+    0x00000001, 0x4c534c47, 0x6474732e, 0x3035342e, 0x00000000, 0x0003000e, 0x00000000, 0x00000001,
+    0x0007000f, 0x00000004, 0x00000004, 0x6e69616d, 0x00000000, 0x0000000c, 0x00000022, 0x00030010,
+    0x00000004, 0x00000007, 0x00040047, 0x0000000c, 0x0000000b, 0x0000000f, 0x00040047, 0x00000022,
+    0x0000001e, 0x00000000, 0x00020013, 0x00000002, 0x00030021, 0x00000003, 0x00000002, 0x00040015,
+    0x00000006, 0x00000020, 0x00000000, 0x00030016, 0x00000009, 0x00000020, 0x00040017, 0x0000000a,
+    0x00000009, 0x00000004, 0x00040020, 0x0000000b, 0x00000001, 0x0000000a, 0x0004003b, 0x0000000b,
+    0x0000000c, 0x00000001, 0x0004002b, 0x00000006, 0x0000000d, 0x00000000, 0x00040020, 0x0000000e,
+    0x00000001, 0x00000009, 0x0004002b, 0x00000006, 0x00000013, 0x00000001, 0x0004002b, 0x00000006,
+    0x00000019, 0x00000083, 0x0004002b, 0x00000006, 0x0000001c, 0x00000011, 0x0004002b, 0x00000006,
+    0x0000001f, 0x000000ff, 0x00040020, 0x00000021, 0x00000003, 0x0000000a, 0x0004003b, 0x00000021,
+    0x00000022, 0x00000003, 0x0004002b, 0x00000009, 0x00000027, 0x00000000, 0x0004002b, 0x00000009,
+    0x00000028, 0x3f800000, 0x0004002b, 0x00000009, 0x0000002a, 0x3b808081, 0x00050036, 0x00000002,
+    0x00000004, 0x00000000, 0x00000003, 0x000200f8, 0x00000005, 0x00050041, 0x0000000e, 0x0000000f,
+    0x0000000c, 0x0000000d, 0x0004003d, 0x00000009, 0x00000010, 0x0000000f, 0x0004006d, 0x00000006,
+    0x00000011, 0x00000010, 0x00050041, 0x0000000e, 0x00000014, 0x0000000c, 0x00000013, 0x0004003d,
+    0x00000009, 0x00000015, 0x00000014, 0x0004006d, 0x00000006, 0x00000016, 0x00000015, 0x00050084,
+    0x00000006, 0x0000001a, 0x00000011, 0x00000019, 0x00050084, 0x00000006, 0x0000001d, 0x00000016,
+    0x0000001c, 0x00050080, 0x00000006, 0x0000001e, 0x0000001a, 0x0000001d, 0x000500c7, 0x00000006,
+    0x00000020, 0x0000001e, 0x0000001f, 0x00040070, 0x00000009, 0x00000024, 0x00000020, 0x00050085,
+    0x00000009, 0x00000026, 0x00000024, 0x0000002a, 0x00070050, 0x0000000a, 0x00000029, 0x00000026,
+    0x00000027, 0x00000027, 0x00000028, 0x0003003e, 0x00000022, 0x00000029, 0x000100fd, 0x00010038,
+};
+
 struct Vk {
   VkInstance instance = VK_NULL_HANDLE;
   VkPhysicalDevice phys = VK_NULL_HANDLE;
@@ -638,6 +666,227 @@ int sampled_roundtrip(const Vk& vk, uint32_t W, uint32_t H, int seed, int* fx, i
   return mismatches;
 }
 
+// Rasterize the pattern directly INTO an R8 color attachment (the glyph-atlas
+// FILL path), then read it back and compare. R8 as a render target has tighter
+// format-feature and layout/tiling requirements than R8-as-sampled-texture; this
+// is the closest match to how Chromium GPU-rasterizes glyph coverage into its
+// atlas. Returns mismatch count (0 == clean), -1 setup fail, -2 R8 unsupported.
+int render_to_r8(const Vk& vk, uint32_t W, uint32_t H, int* fx, int* fy, int* fexp, int* fgot) {
+  VkFormatProperties fp{};
+  vkGetPhysicalDeviceFormatProperties(vk.phys, VK_FORMAT_R8_UNORM, &fp);
+  if (!(fp.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) return -2;
+
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(W) * H;
+  std::vector<uint8_t> pattern(bytes);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++)
+      pattern[y * W + x] = static_cast<uint8_t>((x * 131u + y * 17u) & 0xFFu);
+
+  VkImage img = VK_NULL_HANDLE;
+  VkDeviceMemory img_mem = VK_NULL_HANDLE;
+  VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  ici.imageType = VK_IMAGE_TYPE_2D;
+  ici.format = VK_FORMAT_R8_UNORM;
+  ici.extent = {W, H, 1};
+  ici.mipLevels = 1;
+  ici.arrayLayers = 1;
+  ici.samples = VK_SAMPLE_COUNT_1_BIT;
+  ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+  ici.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  if (vkCreateImage(vk.device, &ici, nullptr, &img) != VK_SUCCESS) return -1;
+  VkMemoryRequirements req{};
+  vkGetImageMemoryRequirements(vk.device, img, &req);
+  int mt = find_mem(vk, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  if (mt < 0) mt = find_mem(vk, req.memoryTypeBits, 0);
+  VkMemoryAllocateInfo mai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  mai.allocationSize = req.size;
+  mai.memoryTypeIndex = static_cast<uint32_t>(mt);
+  if (vkAllocateMemory(vk.device, &mai, nullptr, &img_mem) != VK_SUCCESS) return -1;
+  vkBindImageMemory(vk.device, img, img_mem, 0);
+
+  VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  vi.image = img;
+  vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  vi.format = VK_FORMAT_R8_UNORM;
+  vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  VkImageView view = VK_NULL_HANDLE;
+  vkCreateImageView(vk.device, &vi, nullptr, &view);
+
+  VkBuffer readback = VK_NULL_HANDLE;
+  VkDeviceMemory readback_mem = VK_NULL_HANDLE;
+  if (!make_buffer(vk, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                   &readback, &readback_mem))
+    return -1;
+
+  VkAttachmentDescription att{};
+  att.format = VK_FORMAT_R8_UNORM;
+  att.samples = VK_SAMPLE_COUNT_1_BIT;
+  att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  att.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  VkAttachmentReference ar{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  VkSubpassDescription sub{};
+  sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  sub.colorAttachmentCount = 1;
+  sub.pColorAttachments = &ar;
+  VkRenderPassCreateInfo rpci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+  rpci.attachmentCount = 1;
+  rpci.pAttachments = &att;
+  rpci.subpassCount = 1;
+  rpci.pSubpasses = &sub;
+  VkRenderPass render_pass = VK_NULL_HANDLE;
+  vkCreateRenderPass(vk.device, &rpci, nullptr, &render_pass);
+  VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+  fbci.renderPass = render_pass;
+  fbci.attachmentCount = 1;
+  fbci.pAttachments = &view;
+  fbci.width = W;
+  fbci.height = H;
+  fbci.layers = 1;
+  VkFramebuffer fb = VK_NULL_HANDLE;
+  vkCreateFramebuffer(vk.device, &fbci, nullptr, &fb);
+
+  auto make_shader = [&](const uint32_t* code, size_t sz) -> VkShaderModule {
+    VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    smci.codeSize = sz;
+    smci.pCode = code;
+    VkShaderModule m = VK_NULL_HANDLE;
+    vkCreateShaderModule(vk.device, &smci, nullptr, &m);
+    return m;
+  };
+  VkShaderModule vs = make_shader(kVertSpv, sizeof(kVertSpv));
+  VkShaderModule fs = make_shader(kGenR8Spv, sizeof(kGenR8Spv));
+  VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  VkPipelineLayout pl = VK_NULL_HANDLE;
+  vkCreatePipelineLayout(vk.device, &plci, nullptr, &pl);
+
+  VkPipelineShaderStageCreateInfo stages[2] = {
+      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO},
+      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}};
+  stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+  stages[0].module = vs;
+  stages[0].pName = "main";
+  stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+  stages[1].module = fs;
+  stages[1].pName = "main";
+  VkPipelineVertexInputStateCreateInfo vis{
+      VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+  VkPipelineInputAssemblyStateCreateInfo ias{
+      VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+  ias.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  VkViewport vp{0, 0, (float)W, (float)H, 0, 1};
+  VkRect2D sc{{0, 0}, {W, H}};
+  VkPipelineViewportStateCreateInfo vps{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+  vps.viewportCount = 1;
+  vps.pViewports = &vp;
+  vps.scissorCount = 1;
+  vps.pScissors = &sc;
+  VkPipelineRasterizationStateCreateInfo rs{
+      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+  rs.polygonMode = VK_POLYGON_MODE_FILL;
+  rs.cullMode = VK_CULL_MODE_NONE;
+  rs.lineWidth = 1.0f;
+  VkPipelineMultisampleStateCreateInfo ms{
+      VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+  ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  VkPipelineColorBlendAttachmentState cba{};
+  cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+  VkPipelineColorBlendStateCreateInfo cbs{
+      VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+  cbs.attachmentCount = 1;
+  cbs.pAttachments = &cba;
+  VkGraphicsPipelineCreateInfo gpci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+  gpci.stageCount = 2;
+  gpci.pStages = stages;
+  gpci.pVertexInputState = &vis;
+  gpci.pInputAssemblyState = &ias;
+  gpci.pViewportState = &vps;
+  gpci.pRasterizationState = &rs;
+  gpci.pMultisampleState = &ms;
+  gpci.pColorBlendState = &cbs;
+  gpci.layout = pl;
+  gpci.renderPass = render_pass;
+  VkPipeline pipe = VK_NULL_HANDLE;
+  vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &gpci, nullptr, &pipe);
+
+  VkCommandPool pool = VK_NULL_HANDLE;
+  VkCommandPoolCreateInfo pci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  pci.queueFamilyIndex = vk.queue_family;
+  vkCreateCommandPool(vk.device, &pci, nullptr, &pool);
+  VkCommandBuffer cmd = VK_NULL_HANDLE;
+  VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  cbai.commandPool = pool;
+  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cbai.commandBufferCount = 1;
+  vkAllocateCommandBuffers(vk.device, &cbai, &cmd);
+  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(cmd, &bi);
+  VkClearValue clear{};
+  VkRenderPassBeginInfo rpbi{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+  rpbi.renderPass = render_pass;
+  rpbi.framebuffer = fb;
+  rpbi.renderArea = {{0, 0}, {W, H}};
+  rpbi.clearValueCount = 1;
+  rpbi.pClearValues = &clear;
+  vkCmdBeginRenderPass(cmd, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+  vkCmdDraw(cmd, 3, 1, 0, 0);
+  vkCmdEndRenderPass(cmd);
+  VkBufferImageCopy creg{};
+  creg.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  creg.imageExtent = {W, H, 1};
+  vkCmdCopyImageToBuffer(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1, &creg);
+  vkEndCommandBuffer(cmd);
+
+  VkFence fence = VK_NULL_HANDLE;
+  VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  vkCreateFence(vk.device, &fci, nullptr, &fence);
+  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  si.commandBufferCount = 1;
+  si.pCommandBuffers = &cmd;
+  vkQueueSubmit(vk.queue, 1, &si, fence);
+  vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX);
+
+  void* rb = nullptr;
+  vkMapMemory(vk.device, readback_mem, 0, bytes, 0, &rb);
+  const uint8_t* got = static_cast<const uint8_t*>(rb);
+  int mismatches = 0;
+  for (uint32_t i = 0; i < bytes; i++) {
+    if (got[i] != pattern[i]) {
+      if (mismatches == 0) {
+        *fx = static_cast<int>(i % W);
+        *fy = static_cast<int>(i / W);
+        *fexp = pattern[i];
+        *fgot = got[i];
+      }
+      mismatches++;
+    }
+  }
+  vkUnmapMemory(vk.device, readback_mem);
+
+  vkDestroyFence(vk.device, fence, nullptr);
+  vkDestroyCommandPool(vk.device, pool, nullptr);
+  vkDestroyPipeline(vk.device, pipe, nullptr);
+  vkDestroyPipelineLayout(vk.device, pl, nullptr);
+  vkDestroyShaderModule(vk.device, vs, nullptr);
+  vkDestroyShaderModule(vk.device, fs, nullptr);
+  vkDestroyFramebuffer(vk.device, fb, nullptr);
+  vkDestroyRenderPass(vk.device, render_pass, nullptr);
+  vkDestroyImageView(vk.device, view, nullptr);
+  vkDestroyImage(vk.device, img, nullptr);
+  vkFreeMemory(vk.device, img_mem, nullptr);
+  vkDestroyBuffer(vk.device, readback, nullptr);
+  vkFreeMemory(vk.device, readback_mem, nullptr);
+  return mismatches;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -704,7 +953,34 @@ Java_com_example_hellovktexture_MainActivity_probeVkTexture(JNIEnv* env, jobject
            s_fail ? "  <-- SAMPLED R8 RENDER CORRUPTED" : "");
   report += buf;
 
-  if (total_fail || s_fail) {
+  // Render-INTO-R8 path (R8 as a color attachment) — Chromium rasterizes glyph
+  // coverage into its R8 atlas this way.
+  report += "Vulkan rasterize-into-R8 probe:\n";
+  int r_fail = 0, r_total = 0;
+  for (int s = 0; s < static_cast<int>(sizeof(sizes) / sizeof(sizes[0])); s++) {
+    int fx = -1, fy = -1, fexp = -1, fgot = -1;
+    int mm = render_to_r8(vk, sizes[s].w, sizes[s].h, &fx, &fy, &fexp, &fgot);
+    r_total++;
+    if (mm == -2) {
+      snprintf(buf, sizeof(buf), "  %4ux%-4u : R8-attachment-UNSUPPORTED\n", sizes[s].w,
+               sizes[s].h);
+    } else if (mm < 0) {
+      snprintf(buf, sizeof(buf), "  %4ux%-4u : SETUP-FAIL\n", sizes[s].w, sizes[s].h);
+    } else if (mm == 0) {
+      snprintf(buf, sizeof(buf), "  %4ux%-4u : OK\n", sizes[s].w, sizes[s].h);
+    } else {
+      r_fail++;
+      snprintf(buf, sizeof(buf),
+               "  %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n", sizes[s].w,
+               sizes[s].h, mm, fx, fy, fexp, fgot);
+    }
+    report += buf;
+  }
+  snprintf(buf, sizeof(buf), "RenderR8: %d/%d sizes clean%s\n", r_total - r_fail, r_total,
+           r_fail ? "  <-- RASTERIZE-INTO-R8 CORRUPTED" : "");
+  report += buf;
+
+  if (total_fail || s_fail || r_fail) {
     LOGE("%s", report.c_str());
   } else {
     LOGI("%s", report.c_str());
