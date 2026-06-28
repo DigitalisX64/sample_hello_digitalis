@@ -887,6 +887,184 @@ int render_to_r8(const Vk& vk, uint32_t W, uint32_t H, int* fx, int* fy, int* fe
   return mismatches;
 }
 
+// Incremental sub-rectangle updates into a tiled R8 atlas: fill a base pattern,
+// then overwrite several sub-rects at arbitrary (tile-unaligned) offsets via
+// vkCmdCopyBufferToImage with non-zero imageOffset / small imageExtent — exactly
+// how Chromium places individual glyphs into its atlas. The tiled-address math
+// for a sub-rect differs from a full-image copy; a bug there displaces glyph
+// blocks (the reported symptom). Read the whole atlas back and verify every
+// pixel matches base-or-overlay. Returns mismatch count (0 == clean).
+int subregion_roundtrip(const Vk& vk, uint32_t W, uint32_t H, int* fx, int* fy, int* fexp,
+                        int* fgot) {
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(W) * H;
+  // Expected image: base pattern, then overlay sub-rects.
+  std::vector<uint8_t> expected(bytes);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++)
+      expected[y * W + x] = static_cast<uint8_t>((x * 131u + y * 17u) & 0xFFu);
+
+  struct Rect {
+    uint32_t ox, oy, w, h;
+  };
+  // Tile-unaligned offsets and odd sizes to stress sub-rect tiled addressing.
+  const Rect rects[] = {{0, 0, 16, 16},   {37, 91, 24, 11},  {130, 7, 40, 33},
+                        {201, 150, 50, 60}, {7, 200, 13, 19},  {W / 2, H / 2, 31, 7}};
+  const int n_rects = static_cast<int>(sizeof(rects) / sizeof(rects[0]));
+
+  const VkMemoryPropertyFlags host =
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+  // Image.
+  VkImage image = VK_NULL_HANDLE;
+  VkDeviceMemory image_mem = VK_NULL_HANDLE;
+  VkImageCreateInfo ici{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  ici.imageType = VK_IMAGE_TYPE_2D;
+  ici.format = VK_FORMAT_R8_UNORM;
+  ici.extent = {W, H, 1};
+  ici.mipLevels = 1;
+  ici.arrayLayers = 1;
+  ici.samples = VK_SAMPLE_COUNT_1_BIT;
+  ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+  ici.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  if (vkCreateImage(vk.device, &ici, nullptr, &image) != VK_SUCCESS) return -1;
+  VkMemoryRequirements ireq{};
+  vkGetImageMemoryRequirements(vk.device, image, &ireq);
+  int imt = find_mem(vk, ireq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  if (imt < 0) imt = find_mem(vk, ireq.memoryTypeBits, 0);
+  VkMemoryAllocateInfo imai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  imai.allocationSize = ireq.size;
+  imai.memoryTypeIndex = static_cast<uint32_t>(imt);
+  if (vkAllocateMemory(vk.device, &imai, nullptr, &image_mem) != VK_SUCCESS) return -1;
+  vkBindImageMemory(vk.device, image, image_mem, 0);
+
+  // One staging buffer big enough for the base (full image) and each sub-rect;
+  // pack base at offset 0, then each rect's local pattern after it.
+  std::vector<VkDeviceSize> rect_off(n_rects);
+  VkDeviceSize total = bytes;
+  for (int r = 0; r < n_rects; r++) {
+    rect_off[r] = total;
+    total += static_cast<VkDeviceSize>(rects[r].w) * rects[r].h;
+  }
+  VkBuffer staging = VK_NULL_HANDLE, readback = VK_NULL_HANDLE;
+  VkDeviceMemory staging_mem = VK_NULL_HANDLE, readback_mem = VK_NULL_HANDLE;
+  if (!make_buffer(vk, total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, host, &staging, &staging_mem))
+    return -1;
+  if (!make_buffer(vk, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, host, &readback, &readback_mem))
+    return -1;
+
+  void* sp = nullptr;
+  vkMapMemory(vk.device, staging_mem, 0, total, 0, &sp);
+  uint8_t* s = static_cast<uint8_t*>(sp);
+  memcpy(s, expected.data(), bytes);  // base
+  for (int r = 0; r < n_rects; r++) {
+    const Rect& rc = rects[r];
+    uint8_t* dst = s + rect_off[r];
+    for (uint32_t ly = 0; ly < rc.h; ly++) {
+      for (uint32_t lx = 0; lx < rc.w; lx++) {
+        uint8_t v = static_cast<uint8_t>((lx * 53u + ly * 29u + (r + 1) * 97u) & 0xFFu);
+        dst[ly * rc.w + lx] = v;
+        expected[(rc.oy + ly) * W + (rc.ox + lx)] = v;  // overlay onto expected
+      }
+    }
+  }
+  vkUnmapMemory(vk.device, staging_mem);
+
+  VkCommandPool pool = VK_NULL_HANDLE;
+  VkCommandPoolCreateInfo pci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  pci.queueFamilyIndex = vk.queue_family;
+  vkCreateCommandPool(vk.device, &pci, nullptr, &pool);
+  VkCommandBuffer cmd = VK_NULL_HANDLE;
+  VkCommandBufferAllocateInfo cbai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  cbai.commandPool = pool;
+  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cbai.commandBufferCount = 1;
+  vkAllocateCommandBuffers(vk.device, &cbai, &cmd);
+  VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vkBeginCommandBuffer(cmd, &bi);
+
+  auto barrier = [&](VkImageLayout from, VkImageLayout to, VkAccessFlags src, VkAccessFlags dst) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcAccessMask = src;
+    b.dstAccessMask = dst;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                         VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+  };
+
+  barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+          VK_ACCESS_TRANSFER_WRITE_BIT);
+  // Base full-image copy.
+  VkBufferImageCopy base{};
+  base.bufferOffset = 0;
+  base.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  base.imageExtent = {W, H, 1};
+  vkCmdCopyBufferToImage(cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &base);
+  // Ensure base completes before the overlapping sub-rect writes.
+  barrier(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+  // Sub-rect updates at arbitrary offsets.
+  for (int r = 0; r < n_rects; r++) {
+    const Rect& rc = rects[r];
+    VkBufferImageCopy sub{};
+    sub.bufferOffset = rect_off[r];
+    sub.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    sub.imageOffset = {static_cast<int32_t>(rc.ox), static_cast<int32_t>(rc.oy), 0};
+    sub.imageExtent = {rc.w, rc.h, 1};
+    vkCmdCopyBufferToImage(cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &sub);
+  }
+  barrier(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+  VkBufferImageCopy rd{};
+  rd.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  rd.imageExtent = {W, H, 1};
+  vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1, &rd);
+  vkEndCommandBuffer(cmd);
+
+  VkFence fence = VK_NULL_HANDLE;
+  VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  vkCreateFence(vk.device, &fci, nullptr, &fence);
+  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  si.commandBufferCount = 1;
+  si.pCommandBuffers = &cmd;
+  vkQueueSubmit(vk.queue, 1, &si, fence);
+  vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX);
+
+  void* rb = nullptr;
+  vkMapMemory(vk.device, readback_mem, 0, bytes, 0, &rb);
+  const uint8_t* got = static_cast<const uint8_t*>(rb);
+  int mismatches = 0;
+  for (uint32_t i = 0; i < bytes; i++) {
+    if (got[i] != expected[i]) {
+      if (mismatches == 0) {
+        *fx = static_cast<int>(i % W);
+        *fy = static_cast<int>(i / W);
+        *fexp = expected[i];
+        *fgot = got[i];
+      }
+      mismatches++;
+    }
+  }
+  vkUnmapMemory(vk.device, readback_mem);
+
+  vkDestroyFence(vk.device, fence, nullptr);
+  vkDestroyCommandPool(vk.device, pool, nullptr);
+  vkDestroyImage(vk.device, image, nullptr);
+  vkFreeMemory(vk.device, image_mem, nullptr);
+  vkDestroyBuffer(vk.device, staging, nullptr);
+  vkFreeMemory(vk.device, staging_mem, nullptr);
+  vkDestroyBuffer(vk.device, readback, nullptr);
+  vkFreeMemory(vk.device, readback_mem, nullptr);
+  return mismatches;
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -980,7 +1158,31 @@ Java_com_example_hellovktexture_MainActivity_probeVkTexture(JNIEnv* env, jobject
            r_fail ? "  <-- RASTERIZE-INTO-R8 CORRUPTED" : "");
   report += buf;
 
-  if (total_fail || s_fail || r_fail) {
+  // Incremental sub-rectangle atlas updates (Chromium's per-glyph placement).
+  report += "Vulkan R8 sub-rect atlas-update probe:\n";
+  const Size atlas[] = {{256, 256}, {512, 512}};
+  int g_fail = 0, g_total = 0;
+  for (int s = 0; s < static_cast<int>(sizeof(atlas) / sizeof(atlas[0])); s++) {
+    int fx = -1, fy = -1, fexp = -1, fgot = -1;
+    int mm = subregion_roundtrip(vk, atlas[s].w, atlas[s].h, &fx, &fy, &fexp, &fgot);
+    g_total++;
+    if (mm < 0) {
+      snprintf(buf, sizeof(buf), "  %4ux%-4u : SETUP-FAIL\n", atlas[s].w, atlas[s].h);
+    } else if (mm == 0) {
+      snprintf(buf, sizeof(buf), "  %4ux%-4u : OK\n", atlas[s].w, atlas[s].h);
+    } else {
+      g_fail++;
+      snprintf(buf, sizeof(buf),
+               "  %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n", atlas[s].w,
+               atlas[s].h, mm, fx, fy, fexp, fgot);
+    }
+    report += buf;
+  }
+  snprintf(buf, sizeof(buf), "SubRect: %d/%d clean%s\n", g_total - g_fail, g_total,
+           g_fail ? "  <-- SUB-RECT ATLAS UPDATE CORRUPTED" : "");
+  report += buf;
+
+  if (total_fail || s_fail || r_fail || g_fail) {
     LOGE("%s", report.c_str());
   } else {
     LOGI("%s", report.c_str());
