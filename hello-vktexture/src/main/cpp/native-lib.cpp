@@ -1067,6 +1067,10 @@ int subregion_roundtrip(const Vk& vk, uint32_t W, uint32_t H, int* fx, int* fy, 
 
 }  // namespace
 
+// GLES (OpenGL ES 3.0) R8 probe — the API path Chromium's renderer actually uses
+// (Skia Ganesh GL -> GLES proxy -> host ANGLE -> Vulkan). Defined in gles-probe.cpp.
+bool RunGlesProbe(std::string* out);
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_hellovktexture_MainActivity_probeVkTexture(JNIEnv* env, jobject /*this*/) {
   std::string report = "Vulkan R8 OPTIMAL-tiled round-trip probe:\n";
@@ -1182,14 +1186,18 @@ Java_com_example_hellovktexture_MainActivity_probeVkTexture(JNIEnv* env, jobject
            g_fail ? "  <-- SUB-RECT ATLAS UPDATE CORRUPTED" : "");
   report += buf;
 
-  if (total_fail || s_fail || r_fail || g_fail) {
+  vkDeviceWaitIdle(vk.device);
+  vkDestroyDevice(vk.device, nullptr);
+  vkDestroyInstance(vk.instance, nullptr);
+
+  // GLES path — what Chromium's renderer actually uses (Skia GL -> ANGLE).
+  report += "GLES (ANGLE) R8 probe [Chromium's actual path]:\n";
+  bool gles_ok = RunGlesProbe(&report);
+
+  if (total_fail || s_fail || r_fail || g_fail || !gles_ok) {
     LOGE("%s", report.c_str());
   } else {
     LOGI("%s", report.c_str());
   }
-
-  vkDeviceWaitIdle(vk.device);
-  vkDestroyDevice(vk.device, nullptr);
-  vkDestroyInstance(vk.instance, nullptr);
   return env->NewStringUTF(report.c_str());
 }
