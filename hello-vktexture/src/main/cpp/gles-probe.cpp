@@ -33,6 +33,12 @@ const char* kFS =
     "precision highp float;\n"
     "in vec2 uv; uniform sampler2D tex; out vec4 color;\n"
     "void main(){ float r=texture(tex,uv).r; color=vec4(r,0.0,0.0,1.0); }\n";
+// Array-texture sampler: Chromium's GrDrawOpAtlas glyph atlas is a 2D-ARRAY.
+const char* kFS_array =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "in vec2 uv; uniform mediump sampler2DArray tex; uniform float layer; out vec4 color;\n"
+    "void main(){ float r=texture(tex,vec3(uv,layer)).r; color=vec4(r,0.0,0.0,1.0); }\n";
 
 GLuint compile(GLenum type, const char* src) {
   GLuint s = glCreateShader(type);
@@ -410,6 +416,71 @@ int gles_drawattr_test(GLuint texprog_unused, bool instanced, int* fcell, int* f
   return mm;
 }
 
+// 2D-ARRAY atlas upload (glTexSubImage3D) — Chromium's GrDrawOpAtlas uses a
+// GL_TEXTURE_2D_ARRAY for the glyph atlas (atlas pages = array layers), so per-
+// glyph placement is glTexSubImage3D into a layer, with GL_UNPACK_ROW_LENGTH for
+// the Skia A8 mask's wider rowBytes. The 2D probes never exercise the array-slice
+// upload nor the 3D row/image-pitch unpack handling — a likely gap for the web-
+// text glyph shear. Uploads a known strided pattern into `test_layer`, samples
+// that layer 1:1 to an RGBA8 FBO, reads back, compares. Returns mismatch count.
+int gles_2darray_test(uint32_t W, uint32_t H, uint32_t layers, uint32_t test_layer, GLuint arrprog,
+                      int* fx, int* fy, int* fe, int* fg) {
+  const uint32_t stride = W + 29;  // ROW_LENGTH > W, like Skia's A8 mask rowBytes
+  std::vector<uint8_t> src(static_cast<size_t>(stride) * H, 0xAB);
+  std::vector<uint8_t> exp(static_cast<size_t>(W) * H);
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      uint8_t v = static_cast<uint8_t>((x * 89u + y * 23u + 5u) & 0xFFu);
+      src[y * stride + x] = v;
+      exp[y * W + x] = v;
+    }
+  GLuint tex;
+  glGenTextures(1, &tex);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+  glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R8, W, H, layers, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, static_cast<GLint>(stride));
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, static_cast<GLint>(test_layer), W, H, 1, GL_RED,
+                  GL_UNSIGNED_BYTE, src.data());
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+
+  GLuint fbo, rt;
+  glGenTextures(1, &rt);
+  glBindTexture(GL_TEXTURE_2D, rt);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, rt, 0);
+  glViewport(0, 0, W, H);
+  glUseProgram(arrprog);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, tex);
+  glUniform1i(glGetUniformLocation(arrprog, "tex"), 0);
+  glUniform1f(glGetUniformLocation(arrprog, "layer"), static_cast<float>(test_layer));
+  glDrawArrays(GL_TRIANGLES, 0, 3);
+  std::vector<uint8_t> rb(static_cast<size_t>(W) * H * 4);
+  glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, rb.data());
+  int mm = 0;
+  for (uint32_t i = 0; i < W * H; i++)
+    if (rb[i * 4] != exp[i]) {
+      if (mm == 0) { *fx = i % W; *fy = i / W; *fe = exp[i]; *fg = rb[i * 4]; }
+      mm++;
+    }
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);  // don't leak the array binding to later tests
+  glActiveTexture(GL_TEXTURE0);
+  glDeleteTextures(1, &tex);
+  glDeleteTextures(1, &rt);
+  glDeleteFramebuffers(1, &fbo);
+  return mm;
+}
+
 }  // namespace
 
 // Called from the JNI probe in native-lib.cpp. Appends results to *out.
@@ -535,6 +606,37 @@ bool RunGlesProbe(std::string* out) {
     else { fail++; snprintf(buf, sizeof(buf),
             "  drawinst 256x256  : MISMATCH x%d (cell %d empty)\n", mm, fc); }
     *out += buf;
+  }
+  // 2D-ARRAY atlas upload (glTexSubImage3D) — Chromium's GrDrawOpAtlas glyph
+  // atlas is a GL_TEXTURE_2D_ARRAY, never exercised by the 2D tests above. Run
+  // last: exercising an array texture leaves host-ANGLE 2D-sampler state that
+  // breaks a subsequent 2D draw (observed; not the glyph shear, which is a
+  // stride shear on the array atlas itself, not a black 2D texture).
+  {
+    GLuint avs = compile(GL_VERTEX_SHADER, kVS), afs = compile(GL_FRAGMENT_SHADER, kFS_array);
+    GLuint aprog = glCreateProgram();
+    glAttachShader(aprog, avs);
+    glAttachShader(aprog, afs);
+    glLinkProgram(aprog);
+    const S al[] = {{256, 256}, {300, 200}, {137, 59}};
+    for (int s = 0; s < 3; s++) {
+      int fx = -1, fy = -1, fe = -1, fg = -1;
+      int mm = gles_2darray_test(al[s].w, al[s].h, /*layers=*/4, /*test_layer=*/2, aprog, &fx, &fy,
+                                 &fe, &fg);
+      total++;
+      if (mm == 0) {
+        snprintf(buf, sizeof(buf), "  2darray %4ux%-4u : OK\n", al[s].w, al[s].h);
+      } else {
+        fail++;
+        snprintf(buf, sizeof(buf),
+                 "  2darray %4ux%-4u : MISMATCH x%d (first @%d,%d exp=0x%02x got=0x%02x)\n",
+                 al[s].w, al[s].h, mm, fx, fy, fe, fg);
+      }
+      *out += buf;
+    }
+    glDeleteProgram(aprog);
+    glDeleteShader(avs);
+    glDeleteShader(afs);
   }
   snprintf(buf, sizeof(buf), "GLES: %d/%d clean%s\n", total - fail, total,
            fail ? "  <-- GLES R8 PATH CORRUPTED (Chromium's path!)" : "");
