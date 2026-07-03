@@ -18,9 +18,9 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (126 samples)
+## Module catalog (131 samples)
 
-124 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+129 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
@@ -50,7 +50,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | vectorization | SIMD vectorization benchmarks |
 | orderfile | Linker order-file optimization |
 
-### Graphics & proxy-library smoke tests (8)
+### Graphics & proxy-library smoke tests (10)
 
 | Module | Exercises |
 |--------|-----------|
@@ -62,9 +62,10 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-binder-ndk | NDK binder define/new + host-thread callback round-trip |
 | hello-jnihelp | Drives + self-checks the 12 covered `libnativehelper` `jni*` trampolines (throw-family, jniCreateString, jniGetNioBuffer*, jniLogException, jniRegisterNativeMethods) |
 | hello-nnapi | NNAPI device enumeration through `libberberis_proxy_libneuralnetworks` |
+| hello-vktexture | Vulkan R8 OPTIMAL-tiled image upload/readback round-trip (gfxstream linear<->tiled conversion integrity, the Chromium glyph-atlas path) |
 | hello-webview-functor | `libwebviewchromium_plat_support` WebView hardware-accel draw-functor registration (RegisterDrawFunctor/RegisterDrawGLFunctor/RegisterGraphicsUtils) |
 
-### ARM extension & ABI probes (21)
+### ARM extension & ABI probes (24)
 
 | Module | Exercises |
 |--------|-----------|
@@ -89,6 +90,9 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-superpack-regress | Regression probes for JIT bugs once hit by Facebook/WhatsApp (LDP base aliasing and friends) |
 | hello-libc-libm | Digitalis extra libc/libm fast-path trampolines |
 | hello-sigaction | sigaction install/readback, SIGSEGV delivery + siglongjmp recovery |
+| hello-seccomp | guest seccomp-bpf filter install (SECCOMP_SET_MODE_FILTER) — AArch64-ABI filters must not be forwarded verbatim to the x86_64 host |
+| hello-glyphblit | Skia NEON A8 glyph mask blit (blit_mask_d32_a8_neon) self-checked against a scalar reference |
+| hello-fdsweep | process-spawn fd hygiene: fork + pre-exec fd sweep (close/close_range) + post-sweep translation, posix_spawn of a host binary |
 
 ### UI engines (3)
 
@@ -98,7 +102,7 @@ suite module with `./gradlew :<module>:assembleDebug`.
 | hello-lynx | Lynx (ReactLynx + PrimJS), prebuilt `.lynx.bundle` |
 | hello-qt | Qt 6 widgets (standalone build) |
 
-### Third-party native libraries (72)
+### Third-party native libraries (73)
 
 Media:
 
@@ -275,13 +279,15 @@ verified by launch + logcat instead (their pinned toolchains can't consume
 
 ## Digitalis compatibility
 
-As of 2026-06-15, **all 84 suite-tested modules PASS** on the Digitalis
-emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream Vulkan),
-verified across all three harness modes: liveness (84/84), `StatusTest`
-assertions (70/70), and `ScreenshotTest` pixel-compares (13/13) — no crashes,
-every status assertion meets its expected result, every rendered frame matches
-its reference. The two standalone modules pass their launch verification too:
-`hello-realm` (`REALM OK`) and `hello-qt` (Qt window up, no fatal signal).
+As of 2026-07-03, **all 130 suite-tested modules PASS liveness** on the
+Digitalis emulator (`sdk_phone64_x86_64_digitalis`, ANGLE GLES + gfxstream
+Vulkan) and all 14 rendering modules pass their `ScreenshotTest`
+pixel-compares — no crashes, every rendered frame matches its reference.
+The newly registered `hello-fdsweep` and `hello-vktexture` also pass their
+`StatusTest` assertions (the last full `StatusTest` sweep, 2026-06-15, was
+70/70 on the modules registered then). The standalone module `hello-realm`
+passes its launch verification (`REALM OK`); `hello-qt` is launch-verified
+by the script.
 
 Samples are written against the full ARM64 API surface without regard to what
 the translator implements yet. A sample that crashes with
