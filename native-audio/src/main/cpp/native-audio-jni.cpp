@@ -24,11 +24,12 @@
 #include <assert.h>
 #include <jni.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// for __android_log_print(ANDROID_LOG_INFO, "YourApp", "formatted message");
-// #include <android/log.h>
+#include <android/log.h>
 
 // for native audio
 #include <SLES/OpenSLES.h>
@@ -234,6 +235,42 @@ void bqRecorderCallback([[maybe_unused]] SLAndroidSimpleBufferQueueItf bq,
 }
 
 // create the engine and output mix objects
+// Deterministic-DSP self-check. Synthesizes an integer sawtooth waveform (same
+// as hello-aaudio: bit-identical on any target, so a translator arithmetic
+// miscompile changes the checksum) and asserts an FNV-1a golden computed
+// offline (see hello-aaudio/tools/gen_pcm_golden.c). Logs "nativeaudio OK" or
+// "nativeaudio FAIL" — a real correctness check on top of the OpenSLES setup,
+// which otherwise only proves the engine loaded. Actual playback (the HAL
+// round-trip) cannot be captured headlessly and is not asserted.
+static int16_t NaSynthSample(int64_t frameIndex) {
+  int32_t phase = static_cast<int32_t>(frameIndex % 100);
+  return static_cast<int16_t>(phase * 327 - 16350);
+}
+static uint64_t NaChecksum(const int16_t* buf, int n) {
+  uint64_t h = 1469598103934665603ULL;
+  for (int i = 0; i < n; ++i) {
+    h ^= static_cast<uint16_t>(buf[i]);
+    h *= 1099511628211ULL;
+  }
+  return h;
+}
+static void NaProbeDsp() {
+  static const int kFrames = 4800;
+  static int16_t buf[4800];
+  for (int i = 0; i < kFrames; ++i) buf[i] = NaSynthSample(i);
+  const uint64_t got = NaChecksum(buf, kFrames);
+  const uint64_t kGolden = 0x47de127ff37aa683ULL;
+  if (got != kGolden) {
+    __android_log_print(ANDROID_LOG_ERROR, "nativeaudio",
+                        "nativeaudio FAIL at pcm-checksum: got=0x%016llx want=0x%016llx",
+                        static_cast<unsigned long long>(got),
+                        static_cast<unsigned long long>(kGolden));
+  } else {
+    __android_log_print(ANDROID_LOG_INFO, "nativeaudio",
+                        "nativeaudio OK: pcm-checksum verified (%d frames)", kFrames);
+  }
+}
+
 void CreateEngine(JNIEnv*, jclass) {
   SLresult result;
 
@@ -282,6 +319,10 @@ void CreateEngine(JNIEnv*, jclass) {
   }
   // ignore unsuccessful result codes for environmental reverb, as it is
   // optional for this example
+
+  // Run the deterministic DSP self-check now that the engine is up (createEngine
+  // is called from the activity's onCreate, so this runs on every launch).
+  NaProbeDsp();
 }
 
 // create buffer queue audio player
