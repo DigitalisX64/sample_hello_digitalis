@@ -42,13 +42,25 @@ import com.facebook.soloader.nativeloader.SystemDelegate
  * JNIEnv cache and registers the natives for HybridData, NativeRunnable and
  * ThreadScope. If any of that mis-translates, the load throws.
  *
- * The probe: install SoLoader's SystemDelegate (so NativeLoader forwards to
- * System.loadLibrary), force fbjni's HybridData class to initialize (loading
- * libfbjni.so + running JNI_OnLoad), then confirm the fbjni runtime is live by
- * constructing a HybridData with no native peer and asserting its registered
- * native plumbing reports the expected empty state (isValid() == false). It
- * logs "FBJNI OK" or "FBJNI FAIL" so the suite's StatusTest can assert a clean
- * run.
+ * The probe has two layers:
+ *   1. Install SoLoader's SystemDelegate (so NativeLoader forwards to
+ *      System.loadLibrary), force fbjni's HybridData class to initialize
+ *      (loading libfbjni.so + running JNI_OnLoad), and confirm the fbjni runtime
+ *      is live by constructing a HybridData with no native peer and asserting
+ *      its registered native plumbing reports the expected empty state
+ *      (isValid() == false).
+ *   2. Drive fbjni's *hybrid dispatch* end to end (the gated assertion): load a
+ *      small companion library (libhellofbjni.so) whose C++ DigitalisCompute is
+ *      an fbjni HybridClass, construct it from Kotlin (running makeCxxInstance,
+ *      which allocates the C++ peer and stores its handle in mHybridData), then
+ *      call combine() — a native method dispatched into the C++ peer through
+ *      fbjni's generated thunk — and assert the returned value against a golden.
+ *      This is the machinery React Native's bridge and PyTorch Mobile actually
+ *      use; a translator miscompile in the thunk or the integer arithmetic
+ *      changes the result and trips the golden.
+ *
+ * It logs "FBJNI OK" or "FBJNI FAIL" so the suite's StatusTest can assert a
+ * clean run.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -81,11 +93,23 @@ class MainActivity : AppCompatActivity() {
             val emptyHybrid = HybridData()
             val validWhenEmpty = emptyHybrid.isValid
 
-            if (loaded && !validWhenEmpty) {
-                "FBJNI OK (libfbjni.so loaded, JNI_OnLoad ran, " +
-                    "HybridData runtime live)"
+            // Layer 2 (the gated assertion): a real hybrid-dispatch round-trip.
+            // libhellofbjni.so registers the C++ DigitalisCompute peer in its
+            // JNI_OnLoad; construct it with a known seed and call the native
+            // combine(). combine(a,b) = a*a - b*b + a*b + seed, computed in the
+            // C++ peer and returned through fbjni's native-method thunk.
+            //   seed=100, a=123, b=45
+            //   = 15129 - 2025 + 5535 + 100 = 18739
+            System.loadLibrary("hellofbjni")
+            val compute = DigitalisCompute(HYBRID_SEED)
+            val got = compute.combine(HYBRID_A, HYBRID_B)
+
+            if (loaded && !validWhenEmpty && got == HYBRID_GOLDEN) {
+                "FBJNI OK (libfbjni.so loaded, JNI_OnLoad ran, HybridData runtime " +
+                    "live; hybrid combine($HYBRID_A,$HYBRID_B)=$got verified)"
             } else {
-                "FBJNI FAIL: loaded=$loaded validWhenEmpty=$validWhenEmpty"
+                "FBJNI FAIL: loaded=$loaded validWhenEmpty=$validWhenEmpty " +
+                    "combine=$got want=$HYBRID_GOLDEN"
             }
         } catch (t: Throwable) {
             "FBJNI FAIL: ${t.javaClass.simpleName}: ${t.message}"
@@ -96,5 +120,12 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "HelloFbjni"
+
+        // Hybrid-compute golden: combine(a,b) = a*a - b*b + a*b + seed.
+        // 123*123 - 45*45 + 123*45 + 100 = 15129 - 2025 + 5535 + 100 = 18739.
+        private const val HYBRID_SEED = 100
+        private const val HYBRID_A = 123
+        private const val HYBRID_B = 45
+        private const val HYBRID_GOLDEN = 18739
     }
 }
