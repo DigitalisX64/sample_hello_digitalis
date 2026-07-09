@@ -16,12 +16,16 @@ import kotlin.math.abs
  * Exercises TensorFlow Lite — its arm64-v8a libtensorflowlite_jni.so plus the
  * XNNPACK delegate's NEON kernels — under Berberis ARM64->x86_64 translation.
  *
- * The bundled assets/model.tflite is TensorFlow's canonical "add.bin" test
- * model: a float32 graph with two ADD ops, out = (in + in) + in, i.e. a pure
- * elementwise 3x over a [1,8,8,3] tensor (192 floats). The probe feeds a fixed
- * ramp, runs inference, and self-checks every output element equals 3x its
- * input, logging "TFLITE OK" or "TFLITE FAIL" so the suite's StatusTest can
- * assert a clean run. Inference runs off the main thread.
+ * The bundled assets/model.tflite is a synthetic fixed-weight graph produced by
+ * tools/gen_model.py: Conv2D(3x3, 1 filter, valid) -> ReLU -> Flatten ->
+ * Dense(4->3). This exercises the real convolution dot-product + fully-connected
+ * kernels (not a trivial elementwise op). All weights and the input are small
+ * integers, so the float32 arithmetic is exact and the output is bit-identical
+ * on host and device — letting the probe assert an exact golden. The probe feeds
+ * the committed 4x4 input (values 0..15), runs inference, and self-checks the
+ * 3-element output against the golden, logging "TFLITE OK" or "TFLITE FAIL" so
+ * the suite's StatusTest can assert a clean run. Inference runs off the main
+ * thread.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -38,8 +42,8 @@ class MainActivity : AppCompatActivity() {
     private fun runTfliteProbe(): String {
         val msg = try {
             if (!assetExists(MODEL_ASSET)) {
-                // Documented SKIP: the module still builds and runs; drop a
-                // model.tflite into src/main/assets to enable the real probe.
+                // Documented SKIP: the module still builds and runs; run
+                // tools/gen_model.py to (re)generate src/main/assets/model.tflite.
                 // Must NOT contain the substring "FAIL" so StatusTest passes.
                 "TFLITE OK (SKIP: no model asset)"
             } else {
@@ -56,43 +60,31 @@ class MainActivity : AppCompatActivity() {
     private fun runInferenceCheck(): String {
         val model = loadModel(MODEL_ASSET)
         Interpreter(model).use { interpreter ->
-                // Shape from the model: input [1,8,8,3] float32 = 192 elements.
-                val n = ELEMENT_COUNT
-                val input = ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder())
-                val expected = FloatArray(n)
-                for (i in 0 until n) {
-                    // Deterministic ramp with a fractional part so the check is
-                    // sensitive to FP arithmetic, not just integer copies.
-                    val v = (i - 96) * 0.5f
-                    input.putFloat(v)
-                    expected[i] = v * 3f   // model computes (v + v) + v
-                }
-                input.rewind()
+            // Input [1,4,4,1] float32 = 16 elements (row-major values 0..15).
+            val input = ByteBuffer.allocateDirect(INPUT_COUNT * 4).order(ByteOrder.nativeOrder())
+            for (i in 0 until INPUT_COUNT) input.putFloat(i.toFloat())
+            input.rewind()
 
-                val output = ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder())
-                interpreter.run(input, output)
-                output.rewind()
+            // Output [1,3] float32.
+            val output = ByteBuffer.allocateDirect(OUTPUT_COUNT * 4).order(ByteOrder.nativeOrder())
+            interpreter.run(input, output)
+            output.rewind()
 
-                var mismatches = 0
-                var maxErr = 0f
-                for (i in 0 until n) {
-                    val got = output.float
-                    val err = abs(got - expected[i])
-                    if (err > 1e-3f) {
-                        if (mismatches < 4) {
-                            Log.w(TAG, "elem $i expected ${expected[i]} got $got")
-                        }
-                        mismatches++
-                    }
-                    if (err > maxErr) maxErr = err
-                }
-
-                return if (mismatches == 0) {
-                    "TFLITE OK (out=3*in over $n floats, maxErr=$maxErr)"
-                } else {
-                    "TFLITE FAIL: $mismatches/$n output elements wrong (maxErr=$maxErr)"
-                }
+            val got = FloatArray(OUTPUT_COUNT) { output.float }
+            var bad = -1
+            var maxErr = 0f
+            for (i in 0 until OUTPUT_COUNT) {
+                val err = abs(got[i] - GOLDEN[i])
+                if (err > TOLERANCE && bad < 0) bad = i
+                if (err > maxErr) maxErr = err
             }
+
+            return if (bad < 0) {
+                "TFLITE OK (conv->relu->dense; out=${got.toList()} == golden, maxErr=$maxErr)"
+            } else {
+                "TFLITE FAIL at output[$bad]: got=${got.toList()} want=${GOLDEN.toList()}"
+            }
+        }
     }
 
     private fun assetExists(name: String): Boolean =
@@ -114,6 +106,13 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "HelloTFLite"
         private const val MODEL_ASSET = "model.tflite"
-        private const val ELEMENT_COUNT = 1 * 8 * 8 * 3  // model input shape
+        private const val INPUT_COUNT = 1 * 4 * 4 * 1   // model input shape
+        private const val OUTPUT_COUNT = 3              // model output shape [1,3]
+        private const val TOLERANCE = 1e-4f
+
+        // Golden from tools/gen_model.py over the committed 0..15 input:
+        //   conv(3x3) -> [[5,6],[9,10]], relu (unchanged), flatten [5,6,9,10],
+        //   dense(4->3) -> [27, 8, 13]. All exact integers.
+        private val GOLDEN = floatArrayOf(27f, 8f, 13f)
     }
 }
