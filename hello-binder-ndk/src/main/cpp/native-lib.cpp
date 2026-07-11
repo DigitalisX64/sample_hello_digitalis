@@ -18,6 +18,7 @@
 #include <android/binder_parcel.h>
 #include <android/binder_status.h>
 #include <android/log.h>
+#include <dlfcn.h>
 #include <jni.h>
 
 #include <cstdint>
@@ -169,17 +170,63 @@ std::string ProbeParcelRoundTrip() {
   return err;
 }
 
+// Liveness check for the three Digitalis proxy contract stubs, each of which was
+// DoBadTrampoline upstream and now returns its API's "unavailable" contract value
+// instead of aborting. A regressed/unregistered stub aborts the process with
+// "Bad '<sym>' call"; a wrong value returns a "FAIL" string. This is the
+// real-process complement to the deterministic host test Arm64ProxyNoCrash.
+// Returns "" on success.
+std::string ProbeContractStubs() {
+  // (1) AIBinder_toPlatformBinder -> null sp<IBinder>. sp<> is non-trivially
+  // copyable, so AAPCS64 returns it via the sret register; a matching non-trivial
+  // 8-byte return type makes the compiler use the same ABI. The stub ignores its
+  // argument and writes an empty (null) sp into the caller's sret buffer.
+  struct SpLike {
+    void* p;
+    SpLike() : p(nullptr) {}
+    SpLike(const SpLike& o) : p(o.p) {}
+    ~SpLike() {}
+  };
+  if (void* h = dlopen("libbinder_ndk.so", RTLD_NOW)) {
+    using ToPlatFn = SpLike (*)(void*);
+    auto to_plat =
+        reinterpret_cast<ToPlatFn>(dlsym(h, "_Z25AIBinder_toPlatformBinderP8AIBinder"));
+    if (to_plat != nullptr) {
+      SpLike r = to_plat(reinterpret_cast<void*>(0x1));
+      if (r.p != nullptr) return "FAIL at toPlatformBinder: non-null sp";
+    }
+  }
+  // (2) glGetVkProcAddrNV -> NULL (GFXStream lacks GL_NV_draw_vulkan_image).
+  if (void* h = dlopen("libGLESv2.so", RTLD_NOW)) {
+    using GetVkFn = void* (*)(const char*);
+    auto f = reinterpret_cast<GetVkFn>(dlsym(h, "glGetVkProcAddrNV"));
+    if (f != nullptr && f("vkGetInstanceProcAddr") != nullptr) {
+      return "FAIL at glGetVkProcAddrNV: non-null";
+    }
+  }
+  // (3) ANativeWindow_setPerformInterceptor -> no-op (must not abort).
+  if (void* h = dlopen("libnativewindow.so", RTLD_NOW)) {
+    using SetInterceptFn = void (*)(void*, void*, void*);
+    auto f = reinterpret_cast<SetInterceptFn>(dlsym(h, "ANativeWindow_setPerformInterceptor"));
+    if (f != nullptr) {
+      f(nullptr, nullptr, nullptr);
+    }
+  }
+  return "";
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_hellobinderndk_MainActivity_probeBinderNdk(JNIEnv* env, jobject /*this*/) {
   std::string parcel_result = ProbeParcelRoundTrip();
+  std::string stub_result = parcel_result.empty() ? ProbeContractStubs() : std::string();
   std::string msg;
-  if (parcel_result.empty()) {
-    msg = "hellobinderndk OK: typed-parcel round-trip verified";
+  if (parcel_result.empty() && stub_result.empty()) {
+    msg = "hellobinderndk OK: typed-parcel round-trip + proxy contract stubs verified";
   } else {
     // Contains "FAIL" — the StatusTest gate treats this as a failure marker.
-    msg = "hellobinderndk " + parcel_result;
+    msg = "hellobinderndk " + (parcel_result.empty() ? stub_result : parcel_result);
   }
   __android_log_print(ANDROID_LOG_INFO, LOG_TAG, "%s", msg.c_str());
   return env->NewStringUTF(msg.c_str());
