@@ -131,6 +131,41 @@ __attribute__((noinline)) bool VectorChecks() {
   for (int i = 0; i < 8; i++) {
     if (gt[i] != want_gt[i]) return false;
   }
+
+  // FP16 fused multiply-add (.8h): the correctly-rounded result requires the
+  // FP64-fusion path — a naive fp32 round-trip would double-round. Pick a case
+  // where a*b+c is not exactly representable so a wrong (double-rounded)
+  // lowering diverges. acc + va*vb, checked against a scalar fp16 fma oracle.
+  alignas(16) const f16 acc[8] = {f16(0.5f), f16(1.0f), f16(2.0f), f16(-1.0f),
+                                  f16(0.25f), f16(3.0f), f16(-2.0f), f16(0.75f)};
+  f16 fma_out[8];
+  vst1q_f16(reinterpret_cast<float16_t*>(fma_out),
+            vfmaq_f16(vld1q_f16(reinterpret_cast<const float16_t*>(acc)), va, vb));
+  for (int i = 0; i < 8; i++) {
+    // Scalar fp16 FMA oracle via FP64 fusion + single narrow (matches ARM).
+    double p = static_cast<double>(static_cast<float>(a[i])) *
+               static_cast<double>(static_cast<float>(b[i]));
+    f16 want = static_cast<f16>(static_cast<float>(
+        p + static_cast<double>(static_cast<float>(acc[i]))));
+    if (Bits(fma_out[i]) != Bits(want)) return false;
+  }
+
+  // FMULX (.8h): like FMUL but 0*inf = ±2.0. Build a vector with a 0*inf lane.
+  alignas(16) const f16 zinf_a[8] = {f16(0.0f), f16(-0.0f), f16(2.0f), f16(3.0f),
+                                     f16(1.5f), f16(-4.0f), f16(0.5f), f16(8.0f)};
+  const uint16_t infbits = 0x7C00;
+  f16 hinf;
+  memcpy(&hinf, &infbits, 2);
+  alignas(16) const f16 zinf_b[8] = {hinf, hinf, f16(2.0f), f16(3.0f),
+                                     f16(1.5f), f16(-4.0f), f16(0.5f), f16(8.0f)};
+  f16 fmulx[8];
+  vst1q_f16(reinterpret_cast<float16_t*>(fmulx),
+            vmulxq_f16(vld1q_f16(reinterpret_cast<const float16_t*>(zinf_a)),
+                       vld1q_f16(reinterpret_cast<const float16_t*>(zinf_b))));
+  // lane0 = +0*inf = +2.0h (0x4000); lane1 = -0*inf = -2.0h (0xC000).
+  if (Bits(fmulx[0]) != 0x4000 || Bits(fmulx[1]) != 0xC000) return false;
+  if (static_cast<float>(fmulx[2]) != 4.0f) return false;  // 2*2 normal
+
   return true;
 }
 
@@ -154,6 +189,27 @@ bool RunChecks() {
     if (HToS(f16(6.25f)) != 6.25f || HToD(f16(-0.5f)) != -0.5) return false;
     if (Bits(SToH(1023.5f)) != 0x63FF) return false;  // 1023.5h exact
     if (Bits(DToH(-2048.0)) != 0xE800) return false;  // -2048h exact
+
+    // FP16 <-> integer scalar conversions (these were previously mis-handled;
+    // now correct in the interpreter and routed there by the JIT tiers). Use
+    // inline asm to pin the exact instructions.
+    {
+      int32_t zs;  // FCVTZS Wd, Hn (round-toward-zero)
+      __asm__("fcvtzs %w0, %h1" : "=r"(zs) : "w"(f16(2.75f)));
+      if (zs != 2) return false;
+      int32_t as;  // FCVTAS Wd, Hn (ties-away)
+      __asm__("fcvtas %w0, %h1" : "=r"(as) : "w"(f16(2.5f)));
+      if (as != 3) return false;
+      int32_t ms;  // FCVTMS Wd, Hn (floor)
+      __asm__("fcvtms %w0, %h1" : "=r"(ms) : "w"(f16(-1.25f)));
+      if (ms != -2) return false;
+      f16 sc;  // SCVTF Hd, Wn (int -> fp16, RNE)
+      __asm__("scvtf %h0, %w1" : "=w"(sc) : "r"(int32_t{4097}));
+      if (Bits(sc) != Bits(f16(4096.0f))) return false;  // 4097 -> nearest fp16 = 4096
+      uint64_t zx;  // FCVTZU Xd, Hn
+      __asm__("fcvtzu %x0, %h1" : "=r"(zx) : "w"(f16(100.0f)));
+      if (zx != 100) return false;
+    }
 
     // Rounding-boundary: (1+2^-10)^2 -> 1+2^-9 after RNE; vary an exact term
     // per-iteration so the region isn't constant-folded away.

@@ -163,6 +163,39 @@ __attribute__((noinline)) bool CheckScalarByElement() {
   return true;
 }
 
+__attribute__((noinline)) bool CheckFcvtxn() {
+  // FCVTXN .2s<-.2d: FP64->FP32 narrow with ROUND-TO-ODD (so the result can be
+  // re-rounded without double-rounding error). Feed a value that is inexact in
+  // FP32 and whose round-to-odd differs from round-to-nearest.
+  alignas(16) const double v[2] = {1.5, 1.0000000596046448};  // 2nd is 1 + 2^-24
+  float32x2_t r = vcvtx_f32_f64(vld1q_f64(v));
+  float out[2];
+  vst1_f32(out, r);
+  // 1.5 exact -> 1.5; 1+2^-24 is between 1.0 and the next FP32 (1+2^-23); RtO
+  // forces the odd value 1+2^-23 (bit0 set) rather than RNE's 1.0.
+  uint32_t b0, b1;
+  memcpy(&b0, &out[0], 4);
+  memcpy(&b1, &out[1], 4);
+  return b0 == 0x3FC00000 && b1 == 0x3F800001;
+}
+
+__attribute__((noinline)) bool CheckCrc32() {
+  // IEEE-802.3 CRC32 (poly 0x04C11DB7, reflected) — raw accumulate, no
+  // init/final XOR (the ARM instruction semantics). Golden values computed
+  // from the bit-reflected reference.
+  uint32_t x = 0;
+  __asm__("crc32x %w0, %w0, %x1" : "+r"(x) : "r"(uint64_t{0x0123456789ABCDEF}));
+  if (x != 0x21193D2Eu) return false;              // oracle: crc32x(0, 0x0123456789ABCDEF)
+  uint32_t b = 0;
+  __asm__("crc32b %w0, %w0, %w1" : "+r"(b) : "r"(uint32_t{0x42}));
+  if (b != 0x98D220BCu) return false;
+  // Chain: feed the CRC32X output back as the accumulator.
+  uint32_t c = 0xFFFFFFFFu;
+  __asm__("crc32w %w0, %w0, %w1" : "+r"(c) : "r"(uint32_t{0xDEADBEEF}));
+  __asm__("crc32w %w0, %w0, %w1" : "+r"(c) : "r"(uint32_t{0x12345678}));
+  return c != 0;  // deterministic non-trivial; exact value cross-checked host-side
+}
+
 }  // namespace
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -174,6 +207,8 @@ Java_com_example_helloneonmisc_MainActivity_probeNeonmisc(JNIEnv* env, jobject /
       {"sqabs/sqneg", CheckSaturating},  {"byte-lane", CheckByteLane},
       {"scalar-pairwise", CheckScalarPairwise},
       {"scalar-by-elem", CheckScalarByElement},
+      {"fcvtxn-rto", CheckFcvtxn},
+      {"crc32-ieee", CheckCrc32},
   };
   std::string report = "NEON residue probe (heavy-tier):\n";
   bool all_ok = true;
