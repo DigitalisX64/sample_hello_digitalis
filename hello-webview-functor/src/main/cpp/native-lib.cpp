@@ -16,7 +16,7 @@ namespace {
 // any covered symbol that lost its trampoline would abort the process with
 // "Bad '<sym>' call" (caught by StatusTestRule as "Fatal signal"). The only
 // uncovered symbol, JNI_OnLoad, is the proxy lib's own load-time entry and is
-// deliberately not exercised here (see proxy-coverage-gaps.md).
+// deliberately not exercised here (see the §13 coverage inventory in digitalis/docs/how-it-works.md).
 
 // AwMapMode (android_webview/public/browser/draw_fn.h): READ_ONLY=0,
 // WRITE_ONLY=1, READ_WRITE=2.
