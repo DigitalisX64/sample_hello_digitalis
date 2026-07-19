@@ -10,6 +10,7 @@
 // instruction path. Any mismatch aborts() (SIGABRT).
 
 #include <android/log.h>
+#include <arm_neon.h>
 #include <jni.h>
 
 #include <cstdint>
@@ -90,6 +91,49 @@ __attribute__((noinline)) f16 RefMul(f16 a, f16 b) {
   return static_cast<f16>(wa * wb);
 }
 
+// Vector FP16 (.8h) three-same + misc, with DISTINCT high-lane values so a
+// wrong high-half recombine in a two-half widening lowering is caught.
+__attribute__((noinline)) bool VectorChecks() {
+  alignas(16) const f16 a[8] = {f16(1.5f), f16(2.25f), f16(-4.0f), f16(8.0f),
+                                f16(100.0f), f16(-0.5f), f16(2048.0f), f16(0.125f)};
+  alignas(16) const f16 b[8] = {f16(0.25f), f16(0.75f), f16(1.0f), f16(-8.0f),
+                                f16(28.0f), f16(0.5f), f16(2.0f), f16(0.375f)};
+  float16x8_t va = vld1q_f16(reinterpret_cast<const float16_t*>(a));
+  float16x8_t vb = vld1q_f16(reinterpret_cast<const float16_t*>(b));
+
+  f16 sum[8], mul[8], mx[8], ab[8], ng[8];
+  vst1q_f16(reinterpret_cast<float16_t*>(sum), vaddq_f16(va, vb));
+  const float want_sum[8] = {1.75f, 3.0f, -3.0f, 0.0f, 128.0f, 0.0f, 2050.0f, 0.5f};
+  for (int i = 0; i < 8; i++) {
+    if (static_cast<float>(sum[i]) != want_sum[i]) return false;
+  }
+  vst1q_f16(reinterpret_cast<float16_t*>(mul), vmulq_f16(va, vb));
+  const float want_mul[8] = {0.375f, 1.6875f, -4.0f, -64.0f, 2800.0f, -0.25f,
+                             4096.0f, 0.046875f};
+  for (int i = 0; i < 8; i++) {
+    if (static_cast<float>(mul[i]) != want_mul[i]) return false;
+  }
+  vst1q_f16(reinterpret_cast<float16_t*>(mx), vmaxq_f16(va, vb));
+  if (static_cast<float>(mx[2]) != 1.0f || static_cast<float>(mx[6]) != 2048.0f) return false;
+  vst1q_f16(reinterpret_cast<float16_t*>(ab), vabsq_f16(va));
+  vst1q_f16(reinterpret_cast<float16_t*>(ng), vnegq_f16(va));
+  if (static_cast<float>(ab[2]) != 4.0f || static_cast<float>(ng[2]) != 4.0f ||
+      static_cast<float>(ng[6]) != -2048.0f) return false;
+
+  uint16_t eq[8];
+  vst1q_u16(eq, vceqq_f16(va, va));
+  for (int i = 0; i < 8; i++) {
+    if (eq[i] != 0xFFFF) return false;
+  }
+  uint16_t gt[8];
+  vst1q_u16(gt, vcgtq_f16(va, vb));  // {1,1,0,1,1,0,1,0} pattern below
+  const uint16_t want_gt[8] = {0xFFFF, 0xFFFF, 0, 0xFFFF, 0xFFFF, 0, 0xFFFF, 0};
+  for (int i = 0; i < 8; i++) {
+    if (gt[i] != want_gt[i]) return false;
+  }
+  return true;
+}
+
 bool RunChecks() {
   for (int i = 0; i < kHotIters; i++) {
     // Exact-representable cases (fixed bit patterns).
@@ -118,6 +162,8 @@ bool RunChecks() {
     const f16 big = f16(2048.0f);
     const f16 small = f16(static_cast<float>(2 + 2 * (i & 1)));  // 2 or 4: exact
     if (Bits(HAdd(big, small)) != Bits(RefAdd(big, small))) return false;
+
+    if (!VectorChecks()) return false;
   }
   return true;
 }

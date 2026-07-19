@@ -116,6 +116,31 @@ __attribute__((noinline)) bool CheckByteLane() {
   vst1q_u8(urshr, vrshrq_n_u8(vld1q_u8(uv), 3));
   // round((v)/8): 7 -> 1, 8 -> 1, 12 -> 2 (7+4=11>>3=1? no: (12+4)>>3 = 2), 255 -> 32.
   if (urshr[0] != 1 || urshr[1] != 1 || urshr[2] != 2 || urshr[3] != 32) return false;
+  // Byte insert shifts: SLI keeps the low `shift` bits of dst, SRI the high ones.
+  alignas(16) const uint8_t src[16] = {0x15, 0xA8, 0x01, 0x80, 0xFF, 0x00, 0x42, 0x7E,
+                                       0x15, 0xA8, 0x01, 0x80, 0xFF, 0x00, 0x42, 0x7E};
+  uint8_t sli[16], sri[16];
+  vst1q_u8(sli, vsliq_n_u8(vdupq_n_u8(0xFF), vld1q_u8(src), 3));
+  // (src << 3) | (0xFF & 0x07): 0x15 -> 0xA8|0x07 = 0xAF; 0x80 -> 0x00|0x07 = 0x07.
+  if (sli[0] != 0xAF || sli[3] != 0x07 || sli[4] != 0xFF) return false;
+  vst1q_u8(sri, vsriq_n_u8(vdupq_n_u8(0xFF), vld1q_u8(src), 3));
+  // (src >> 3) | (0xFF & 0xE0): 0xA8 -> 0x15|0xE0 = 0xF5; 0x01 -> 0x00|0xE0 = 0xE0.
+  if (sri[1] != 0xF5 || sri[2] != 0xE0 || sri[4] != 0xFF) return false;
+  // Signed rounding shifts: SRSHR floors after adding 1<<(shift-1) in wide
+  // arithmetic; SRSRA/URSRA accumulate the rounded shift into dst.
+  alignas(16) const int8_t rs[16] = {-1, -128, 7, 127, -4, 4, -100, 100,
+                                     -1, -128, 7, 127, -4, 4, -100, 100};
+  int8_t srshr[16], srsra[16];
+  vst1q_s8(srshr, vrshrq_n_s8(vld1q_s8(rs), 3));
+  // (-1+4)>>3 = 0; (-128+4)>>3 = -124>>3 = -16 (floor); (127+4)>>3 = 16.
+  if (srshr[0] != 0 || srshr[1] != -16 || srshr[3] != 16) return false;
+  vst1q_s8(srsra, vrsraq_n_s8(vdupq_n_s8(1), vld1q_s8(rs), 1));
+  // 1 + ((-128+1)>>1) = 1 + (-127>>1) = 1 + (-64) = -63; 1 + ((127+1)>>1) = 65.
+  if (srsra[1] != -63 || srsra[3] != 65) return false;
+  uint8_t ursra[16];
+  vst1q_u8(ursra, vrsraq_n_u8(vdupq_n_u8(1), vld1q_u8(uv), 3));
+  // 1 + ((255+4)>>3) = 33 for lane 3 (uv[3]=255); 1 + ((7+4)>>3) = 2 for lane 0.
+  if (ursra[0] != 2 || ursra[3] != 33) return false;
   return true;
 }
 
