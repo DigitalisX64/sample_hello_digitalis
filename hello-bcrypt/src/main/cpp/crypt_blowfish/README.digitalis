@@ -1,0 +1,19 @@
+Vendored third-party sources, unmodified.
+
+crypt_blowfish 1.3
+  Solar Designer <solar at openwall.com>, https://www.openwall.com/crypt/
+  Public domain (see the notice at the top of each file).
+  Files: crypt_blowfish.c/.h, crypt_gensalt.c/.h, wrapper.c, ow-crypt.h, crypt.h
+
+  x86.S from the upstream tarball is intentionally NOT vendored: it is the x86
+  assembly implementation of BF_body, and this sample must build the portable C
+  one for arm64-v8a so the translator sees real ARM64 Blowfish code.
+
+The libbcrypt wrapper one directory up (../bcrypt.c, ../bcrypt.h) is by
+Ricardo Garcia <r@rg3.name>, dedicated to the public domain under CC0. It
+expects crypt_blowfish to sit in a "crypt_blowfish" subdirectory, which is why
+this layout is preserved verbatim.
+
+Do not edit these files. If a translator bug appears to require a change here,
+fix it in frameworks/libs/binary_translation/ instead -- the point of vendoring
+the real library is that the sample runs the same code a shipping app does.
