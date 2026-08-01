@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellozstd.R
 import com.github.luben.zstd.Zstd
 
@@ -22,6 +23,30 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runZstdProbe()
+        runBenchmarks()
+    }
+
+    /**
+     * Timed workloads, separate from the correctness probe above.
+     *
+     * 1 MB per iteration so the measurement is dominated by the codec rather
+     * than by JNI call overhead, and semi-compressible rather than a repeating
+     * pattern — a 4 KB run of one byte compresses to nothing and would measure
+     * the early-exit path instead of the match finder. Levels 3 and 9 bracket
+     * the range apps actually use; decompression is timed separately because it
+     * is a different code path with a very different instruction mix.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-zstd"
+        val data = ByteArray(1 shl 20) { ((it * 31) xor (it shr 5)).toByte() }
+        val compressed = Zstd.compress(data, 3)
+
+        Bench.run(module, "compress-1MB-level3") { Zstd.compress(data, 3) }
+        Bench.run(module, "compress-1MB-level9", warmup = 3, iters = 15) {
+            Zstd.compress(data, 9)
+        }
+        Bench.run(module, "decompress-1MB") { Zstd.decompress(compressed, data.size) }
+        Bench.done(module)
     }
 
     private fun runZstdProbe(): String {

@@ -31,5 +31,6 @@ dependencies {
     // natives (linux/aarch64 links libc.so.6), so the @aar is required.
     implementation("com.github.luben:zstd-jni:1.5.7-10@aar")
 
+    implementation(project(":bench-lib"))
     androidTestImplementation(project(":status-test-lib"))
 }
