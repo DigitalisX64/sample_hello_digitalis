@@ -155,6 +155,26 @@ static int RunRoundTrip(char stored[BCRYPT_HASHSIZE], int* verify_ok, int* rejec
   return *verify_ok && *reject_ok && *stable_ok;
 }
 
+/*
+ * One bcrypt hash at the given cost, for the benchmark harness. Deterministic:
+ * a fixed salt and password, so every iteration performs exactly the same
+ * 2^cost key-schedule rounds and nothing is cached between calls. Returns
+ * non-zero on failure so a broken run cannot masquerade as a fast one.
+ */
+JNIEXPORT jint JNICALL
+Java_com_example_hellobcrypt_MainActivity_benchHashOnce(JNIEnv* env, jobject thiz, jint cost) {
+  (void)env;
+  (void)thiz;
+  char salt[BCRYPT_HASHSIZE];
+  char hash[BCRYPT_HASHSIZE];
+  /* Fixed 22-character salt: no RNG in the measured path. */
+  snprintf(salt, sizeof(salt), "$2b$%02d$abcdefghijklmnopqrstuu", (int)cost);
+  if (bcrypt_hashpw("digitalis-benchmark", salt, hash) != 0) {
+    return 1;
+  }
+  return hash[0] == '\0' ? 2 : 0;
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_example_hellobcrypt_MainActivity_runProbe(JNIEnv* env, jobject thiz) {
   (void)thiz;

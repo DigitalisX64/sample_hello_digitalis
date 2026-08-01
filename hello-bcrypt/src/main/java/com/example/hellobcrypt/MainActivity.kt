@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellobcrypt.R
 
 /**
@@ -43,6 +44,9 @@ class MainActivity : AppCompatActivity() {
 
     private external fun runProbe(): String
 
+    /** One hash at the given cost — the timed workload. */
+    private external fun benchHashOnce(cost: Int): Int
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -54,6 +58,22 @@ class MainActivity : AppCompatActivity() {
         }
         Log.i(TAG, msg)
         findViewById<TextView>(R.id.sample_text).text = msg
+        runBenchmarks()
+    }
+
+    /**
+     * Timed workloads. Cost 8 keeps an iteration in the millisecond range while
+     * still running 256 key-schedule rounds — long enough for a region to go
+     * hot and the second gear to engage, short enough for 30 iterations.
+     * Cost 10 is the same work scaled 4x, as a check that the ratio holds.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-bcrypt"
+        Bench.run(module, "hashpw-cost8") { check(benchHashOnce(8) == 0) }
+        Bench.run(module, "hashpw-cost10", warmup = 3, iters = 15) {
+            check(benchHashOnce(10) == 0)
+        }
+        Bench.done(module)
     }
 
     companion object {
