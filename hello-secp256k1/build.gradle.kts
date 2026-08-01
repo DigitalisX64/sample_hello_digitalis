@@ -35,5 +35,7 @@ dependencies {
     implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.23.0")
     implementation("fr.acinq.secp256k1:secp256k1-kmp:0.23.0")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

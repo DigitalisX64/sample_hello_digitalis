@@ -45,5 +45,7 @@ dependencies {
     // under Berberis ARM64->x86_64 translation.
     implementation("com.viliussutkus89.ndk.thirdparty:pcre2-ndk26-shared:10.42-beta-4")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

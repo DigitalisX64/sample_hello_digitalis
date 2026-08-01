@@ -55,5 +55,7 @@ dependencies {
     implementation("org.bytedeco:openblas:0.3.31-1.5.13")
     implementation("org.bytedeco:openblas:0.3.31-1.5.13:android-arm64")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

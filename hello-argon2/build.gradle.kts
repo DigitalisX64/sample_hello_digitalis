@@ -34,5 +34,7 @@ dependencies {
     // their release publication requires GPG signing).
     implementation("com.lambdapioneer.argon2kt:argon2kt:1.6.0")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

@@ -20,6 +20,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.helloopenblas.R
 import org.bytedeco.javacpp.FloatPointer
 import org.bytedeco.javacpp.Loader
@@ -44,6 +45,41 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runProbe()
+        runBenchmarks()
+    }
+
+    /**
+     * Dense single-precision matrix multiply — the workload the register
+     * allocator is most exposed by. A 256x256x256 SGEMM is ~33M multiply-adds
+     * over three resident matrices, so the inner kernel wants far more live
+     * values than the 13 host registers a translated region can hold. Sized so
+     * one iteration is milliseconds rather than microseconds: below about a
+     * millisecond, scheduling jitter on the emulator swamps the measurement.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-openblas"
+        val n = 256
+        val a = FloatPointer((n * n).toLong())
+        val b = FloatPointer((n * n).toLong())
+        val c = FloatPointer((n * n).toLong())
+        try {
+            for (i in 0 until n * n) {
+                a.put(i.toLong(), ((i % 17) + 1).toFloat())
+                b.put(i.toLong(), ((i % 13) + 1).toFloat())
+            }
+            Bench.run(module, "sgemm-256", warmup = 5, iters = 15) {
+                openblas.cblas_sgemm(
+                    openblas.CblasRowMajor, openblas.CblasNoTrans, openblas.CblasNoTrans,
+                    n, n, n, 1f, a, n, b, n, 0f, c, n,
+                )
+            }
+            Bench.run(module, "saxpy-65k-x200", warmup = 5, iters = 20) {
+                repeat(200) { openblas.cblas_saxpy(n * n, 2.0f, a, 1, c, 1) }
+            }
+        } finally {
+            a.deallocate(); b.deallocate(); c.deallocate()
+        }
+        Bench.done(module)
     }
 
     private fun runProbe(): String {

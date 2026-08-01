@@ -20,6 +20,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellofftw.R
 import org.bytedeco.fftw.global.fftw3
 import org.bytedeco.javacpp.DoublePointer
@@ -50,6 +51,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runProbe()
+        runBenchmarks()
     }
 
     private fun runProbe(): String {
@@ -140,6 +142,37 @@ class MainActivity : AppCompatActivity() {
         path?.substringAfterLast('/') ?: "<null>"
 
     private fun fmt(v: Double): String = String.format("%.4g", v)
+
+    /**
+     * A 64K-point complex FFT: double-precision butterflies over a working set
+     * far larger than cache, so it mixes heavy scalar FP with a strided memory
+     * access pattern. The plan is built once, outside the timed loop — planning
+     * is a measurement of FFTW's search, not of translation.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-fftw"
+        val n = 1 shl 16
+        val complexLen = 2L * n
+        val input = DoublePointer(complexLen)
+        val output = DoublePointer(complexLen)
+        try {
+            for (i in 0 until n) {
+                input.put(2L * i, cos(2.0 * PI * 4.0 * i / n))
+                input.put(2L * i + 1, 0.0)
+            }
+            val plan = fftw3.fftw_plan_dft_1d(n, input, output, fftw3.FFTW_FORWARD, fftw3.FFTW_ESTIMATE)
+            try {
+                Bench.run(module, "fft-64k-complex", warmup = 5, iters = 20) {
+                    fftw3.fftw_execute(plan)
+                }
+            } finally {
+                fftw3.fftw_destroy_plan(plan)
+            }
+        } finally {
+            input.deallocate(); output.deallocate()
+        }
+        Bench.done(module)
+    }
 
     companion object {
         private const val TAG = "HelloFftw"

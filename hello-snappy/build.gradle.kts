@@ -59,5 +59,7 @@ dependencies {
     implementation("org.xerial.snappy:snappy-java:1.1.10.8")
     snappyNative("org.xerial.snappy:snappy-java:1.1.10.8")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

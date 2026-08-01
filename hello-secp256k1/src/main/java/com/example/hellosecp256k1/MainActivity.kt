@@ -20,6 +20,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellosecp256k1.R
 import fr.acinq.secp256k1.Secp256k1
 
@@ -38,6 +39,36 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runSecp256k1Probe()
+        runBenchmarks()
+    }
+
+    /**
+     * ECDSA over the Bitcoin curve: 256-bit modular arithmetic, so the hot loop
+     * is full of 64x64->128 multiplies and carry chains — the integer path that
+     * maps least directly onto the host, since ARM64 needs MUL+UMULH where
+     * x86_64 has a single widening multiply and different flag semantics.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-secp256k1"
+        val secp = Secp256k1.get()
+        val privkey = ByteArray(32) { (it + 1).toByte() }
+        val message = ByteArray(32) { (0xA0 + it).toByte() }
+        val pubkey = secp.pubkeyCreate(privkey)
+        val sig = secp.sign(message, privkey)
+
+        // A single operation is ~100us, short enough that scheduling noise
+        // dominates; 20 per iteration puts each measurement in the millisecond
+        // range where the emulator is reliable.
+        Bench.run(module, "sign-x20", warmup = 5, iters = 20) {
+            repeat(20) { secp.sign(message, privkey) }
+        }
+        Bench.run(module, "verify-x20", warmup = 5, iters = 20) {
+            repeat(20) { check(secp.verify(sig, message, pubkey)) }
+        }
+        Bench.run(module, "ecdh-x20", warmup = 3, iters = 15) {
+            repeat(20) { secp.ecdh(privkey, pubkey) }
+        }
+        Bench.done(module)
     }
 
     private fun runSecp256k1Probe(): String {

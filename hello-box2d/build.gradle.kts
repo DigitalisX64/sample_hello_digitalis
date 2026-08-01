@@ -54,6 +54,8 @@ dependencies {
     nativesArm64("com.badlogicgames.gdx:gdx-platform:1.14.2:natives-arm64-v8a")
     nativesArm64("com.badlogicgames.gdx:gdx-box2d-platform:1.14.2:natives-arm64-v8a")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }
 

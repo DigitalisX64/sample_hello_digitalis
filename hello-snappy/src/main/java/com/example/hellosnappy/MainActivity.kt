@@ -20,6 +20,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellosnappy.R
 import org.xerial.snappy.Snappy
 
@@ -40,6 +41,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runSnappyProbe()
+        runBenchmarks()
     }
 
     private fun runSnappyProbe(): String {
@@ -84,6 +86,21 @@ class MainActivity : AppCompatActivity() {
         }
         Log.i(TAG, msg)
         return msg
+    }
+
+    /**
+     * Snappy trades ratio for speed, so against zstd it is the same task at a
+     * very different instruction mix: almost no entropy coding, mostly byte
+     * copying and hash lookups. 1 MB per iteration, semi-compressible.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-snappy"
+        val data = ByteArray(1 shl 20) { ((it * 31) xor (it shr 5)).toByte() }
+        val compressed = Snappy.compress(data)
+
+        Bench.run(module, "compress-1MB", warmup = 5, iters = 20) { Snappy.compress(data) }
+        Bench.run(module, "uncompress-1MB", warmup = 5, iters = 20) { Snappy.uncompress(compressed) }
+        Bench.done(module)
     }
 
     companion object {

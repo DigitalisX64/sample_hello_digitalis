@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellopcre2.R
 
 /**
@@ -38,6 +39,9 @@ class MainActivity : AppCompatActivity() {
 
     private external fun runProbe(): String
 
+    /** Repeated matching; use_jit selects PCRE2's own runtime code generator. */
+    private external fun benchMatch(reps: Int, useJit: Boolean): Int
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -49,6 +53,24 @@ class MainActivity : AppCompatActivity() {
         }
         Log.i(TAG, msg)
         findViewById<TextView>(R.id.sample_text).text = msg
+        runBenchmarks()
+    }
+
+    /**
+     * The same 2000 matches twice: once through PCRE2's JIT, once through its
+     * interpreter. The JIT case is guest code generating guest code, so it also
+     * exercises the translator's self-modifying-code invalidation.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-pcre2"
+        val reps = 2000
+        Bench.run(module, "match-jit-2000", warmup = 3, iters = 15) {
+            check(benchMatch(reps, true) == reps)
+        }
+        Bench.run(module, "match-interp-2000", warmup = 3, iters = 15) {
+            check(benchMatch(reps, false) == reps)
+        }
+        Bench.done(module)
     }
 
     companion object {

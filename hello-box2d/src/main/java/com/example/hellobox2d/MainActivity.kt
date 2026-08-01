@@ -27,6 +27,7 @@ import com.badlogic.gdx.physics.box2d.Box2D
 import com.badlogic.gdx.physics.box2d.EdgeShape
 import com.badlogic.gdx.physics.box2d.PolygonShape
 import com.badlogic.gdx.physics.box2d.World
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.hellobox2d.R
 
 /**
@@ -46,6 +47,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runBox2DProbe()
+        runBenchmarks()
     }
 
     private fun runBox2DProbe(): String {
@@ -105,6 +107,38 @@ class MainActivity : AppCompatActivity() {
         }
         Log.i(TAG, msg)
         return msg
+    }
+
+    /**
+     * A physics step over many bodies: single-precision vector maths with a
+     * branchy broad phase, stepped at a fixed timestep so every iteration does
+     * identical work. This is the shape of a game's per-frame native cost.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-box2d"
+        com.badlogic.gdx.utils.GdxNativesLoader.load()
+        Box2D.init()
+        val world = World(Vector2(0f, -10f), true)
+        val groundBody = world.createBody(BodyDef().apply { type = BodyDef.BodyType.StaticBody })
+        EdgeShape().apply {
+            set(Vector2(-100f, 0f), Vector2(100f, 0f))
+            groundBody.createFixture(this, 0f)
+            dispose()
+        }
+        val box = PolygonShape().apply { setAsBox(0.5f, 0.5f) }
+        for (i in 0 until 200) {
+            val body = world.createBody(BodyDef().apply {
+                type = BodyDef.BodyType.DynamicBody
+                position.set((i % 20) * 1.1f - 10f, 2f + (i / 20) * 1.2f)
+            })
+            body.createFixture(box, 1f)
+        }
+        box.dispose()
+
+        Bench.run(module, "step-200-bodies-x60", warmup = 3, iters = 15) {
+            repeat(60) { world.step(1f / 60f, 8, 3) }
+        }
+        Bench.done(module)
     }
 
     companion object {

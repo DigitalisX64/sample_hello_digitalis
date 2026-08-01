@@ -52,5 +52,7 @@ dependencies {
     implementation("org.bytedeco:fftw:3.3.10-1.5.13")
     implementation("org.bytedeco:fftw:3.3.10-1.5.13:android-arm64")
 
+    implementation(project(":bench-lib"))
+
     androidTestImplementation(project(":status-test-lib"))
 }

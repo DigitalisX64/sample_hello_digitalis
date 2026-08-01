@@ -57,6 +57,72 @@ static int GroupEquals(const PCRE2_SIZE* ovector, const char* subject, int g,
   return memcmp(subject + start, expected, len) == 0;
 }
 
+/*
+ * Repeated matching for the benchmark harness.
+ *
+ * The compiled pattern is cached across calls, one per mode. That matters more
+ * than it looks: PCRE2's JIT makes sljit emit ARM64 at runtime, and recompiling
+ * per call would place fresh guest code at a fresh address every iteration,
+ * forcing Digitalis to translate it again each time. The measurement would then
+ * be dominated by translation of guest-generated code rather than by matching.
+ * Compiling once means the loop measures steady-state matching, with the
+ * self-modifying-code path exercised once at the start.
+ *
+ * use_jit selects PCRE2's JIT (guest code generating guest code) against its
+ * interpreter (ordinary precompiled ARM64), isolating what that path costs.
+ *
+ * Returns the number of successful matches, or a negative error code.
+ */
+static pcre2_code* g_bench_code[2] = {NULL, NULL};
+static pcre2_match_data* g_bench_md[2] = {NULL, NULL};
+
+JNIEXPORT jint JNICALL
+Java_com_example_hellopcre2_MainActivity_benchMatch(JNIEnv* env, jobject thiz, jint reps,
+                                                    jboolean use_jit) {
+  (void)env;
+  (void)thiz;
+  const int slot = use_jit ? 1 : 0;
+  const char* pattern = "(\\d{4})-(\\d{2})-(\\d{2})";
+  const char* subject =
+      "log 2026-06-21 entry padding padding padding padding padding "
+      "more text so the matcher has to scan rather than hit immediately "
+      "and 2026-08-01 appears late in the line";
+  const PCRE2_SIZE subject_len = (PCRE2_SIZE)strlen(subject);
+
+  if (g_bench_code[slot] == NULL) {
+    int errorcode = 0;
+    PCRE2_SIZE erroroffset = 0;
+    pcre2_code* code = pcre2_compile((PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED, 0,
+                                     &errorcode, &erroroffset, NULL);
+    if (code == NULL) {
+      return -1;
+    }
+    if (use_jit && pcre2_jit_compile(code, PCRE2_JIT_COMPLETE) != 0) {
+      pcre2_code_free(code);
+      return -2;
+    }
+    pcre2_match_data* md = pcre2_match_data_create_from_pattern(code, NULL);
+    if (md == NULL) {
+      pcre2_code_free(code);
+      return -3;
+    }
+    g_bench_code[slot] = code;
+    g_bench_md[slot] = md;
+  }
+
+  jint matched = 0;
+  for (jint i = 0; i < reps; i++) {
+    int rc = use_jit ? pcre2_jit_match(g_bench_code[slot], (PCRE2_SPTR)subject, subject_len, 0,
+                                       0, g_bench_md[slot], NULL)
+                     : pcre2_match(g_bench_code[slot], (PCRE2_SPTR)subject, subject_len, 0, 0,
+                                   g_bench_md[slot], NULL);
+    if (rc > 0) {
+      matched++;
+    }
+  }
+  return matched;
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_example_hellopcre2_MainActivity_runProbe(JNIEnv* env, jobject thiz) {
   (void)thiz;

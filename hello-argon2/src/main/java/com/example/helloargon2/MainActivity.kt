@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import com.example.hellodigitalis.bench.Bench
 import com.example.hellodigitalis.helloargon2.R
 import com.lambdapioneer.argon2kt.Argon2Kt
 import com.lambdapioneer.argon2kt.Argon2Mode
@@ -40,6 +41,34 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<TextView>(R.id.sample_text).text = runProbe()
+        runBenchmarks()
+    }
+
+    /**
+     * Argon2id is memory-hard where bcrypt is compute-hard: the cost is in
+     * filling and re-reading a large buffer, not in a tight key schedule. It is
+     * the contrast case — a workload where translation quality should matter
+     * much less, because the bottleneck is memory rather than instructions.
+     *
+     * 16 MiB and two passes keeps an iteration in the tens of milliseconds; the
+     * probe above still runs the full 64 MiB configuration for correctness.
+     */
+    private fun runBenchmarks() {
+        val module = "hello-argon2"
+        val argon2 = Argon2Kt()
+        val password = "digitalis-benchmark".toByteArray()
+        val salt = "somesalt16bytes!".toByteArray()
+
+        Bench.run(module, "argon2id-16MiB-t2", warmup = 2, iters = 12) {
+            argon2.hash(
+                mode = Argon2Mode.ARGON2_ID,
+                password = password,
+                salt = salt,
+                tCostInIterations = 2,
+                mCostInKibibyte = 16384,
+            )
+        }
+        Bench.done(module)
     }
 
     private fun runProbe(): String {
