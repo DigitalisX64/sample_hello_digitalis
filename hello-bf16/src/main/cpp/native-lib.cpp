@@ -376,6 +376,63 @@ bool probe_bfmlal_idx(std::string& report, char (&buf)[256], bool top) {
 
 }  // namespace
 
+// Timed workload: narrowing FP32 to BF16 in bulk (BFCVTN/BFCVTN2). This is
+// the conversion an inference runtime performs on every activation tensor it
+// hands to a BF16 kernel, so it sits directly in front of the matmul rather
+// than off to one side.
+//
+// Written as inline asm rather than intrinsics so the instruction under test
+// is the one that executes, whatever the compiler would otherwise choose.
+namespace {
+
+constexpr int kNarrowCount = 4096;
+
+// Passes per measured call, so a call is long enough to measure rather than
+// sitting in the harness's noise floor.
+constexpr int kNarrowPasses = 32;
+
+const float* NarrowSource() {
+  static float* data = [] {
+    auto* buf = new float[kNarrowCount];
+    for (int i = 0; i < kNarrowCount; ++i) {
+      buf[i] = static_cast<float>(i % 1024) * 0.0625f - 32.0f;
+    }
+    return buf;
+  }();
+  return data;
+}
+
+// Narrow the buffer to BF16 and return a checksum of the result, so the loop
+// has an observable effect and cannot be elided.
+uint32_t NarrowToBf16() {
+  const float* src = NarrowSource();
+  uint32_t checksum = 0;
+  uint16_t out[8];
+  for (int pass = 0; pass < kNarrowPasses; ++pass) {
+   for (int i = 0; i < kNarrowCount; i += 8) {
+    __asm__ __volatile__(
+        "ld1 {v1.4s, v2.4s}, [%[in]]\n"
+        ".inst 0x0ea16820  // bfcvtn v0.4h, v1.4s\n"
+        ".inst 0x4ea16840  // bfcvtn2 v0.8h, v2.4s\n"
+        "st1 {v0.8h}, [%[out]]\n"
+        :
+        : [in] "r"(src + i), [out] "r"(out)
+        : "v0", "v1", "v2", "memory");
+    for (uint16_t v : out) {
+      checksum = checksum * 31u + v;
+    }
+   }
+  }
+  return checksum;
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_hellobf16_MainActivity_benchNarrowToBf16(JNIEnv*, jobject) {
+  return static_cast<jint>(NarrowToBf16());
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_hellobf16_MainActivity_probeBf16(JNIEnv* env,
                                                   jobject /*this*/) {

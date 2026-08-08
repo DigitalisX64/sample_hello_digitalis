@@ -29,5 +29,6 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
+    implementation(project(":bench-lib"))
     androidTestImplementation(project(":status-test-lib"))
 }

@@ -198,6 +198,76 @@ __attribute__((noinline)) bool CheckCrc32() {
 
 }  // namespace
 
+// Timed workloads: the Newton-Raphson refinements built on the FP estimate
+// instructions. FRECPE/FRECPS and FRSQRTE/FRSQRTS are how a renderer or a
+// solver gets a reciprocal or an inverse square root without a divide, and the
+// estimate-then-refine pair is always used together, so timing the pair is
+// what says whether the sequence is worth using under translation.
+namespace {
+
+constexpr int kEstimateCount = 4096;
+
+// Passes per measured call. A single pass is tens of microseconds, inside the
+// harness's noise floor; this lifts a call clear of it.
+constexpr int kEstimatePasses = 12;
+
+const float* EstimateSource() {
+  static float* data = [] {
+    auto* buf = new float[kEstimateCount];
+    for (int i = 0; i < kEstimateCount; ++i) {
+      // Bounded away from zero so the refinement converges and no lane goes
+      // infinite, which would make the timing meaningless.
+      buf[i] = 0.5f + static_cast<float>(i % 512) * 0.125f;
+    }
+    return buf;
+  }();
+  return data;
+}
+
+// Reciprocal by estimate plus two Newton steps (FRECPE + FRECPS).
+float ReciprocalNewton() {
+  const float* src = EstimateSource();
+  float32x4_t acc = vdupq_n_f32(0.0f);
+  for (int pass = 0; pass < kEstimatePasses; ++pass) {
+    for (int i = 0; i < kEstimateCount; i += 4) {
+      const float32x4_t v = vld1q_f32(src + i);
+      float32x4_t e = vrecpeq_f32(v);
+      e = vmulq_f32(e, vrecpsq_f32(v, e));
+      e = vmulq_f32(e, vrecpsq_f32(v, e));
+      acc = vaddq_f32(acc, e);
+    }
+  }
+  return vaddvq_f32(acc);
+}
+
+// Inverse square root the same way (FRSQRTE + FRSQRTS).
+float RsqrtNewton() {
+  const float* src = EstimateSource();
+  float32x4_t acc = vdupq_n_f32(0.0f);
+  for (int pass = 0; pass < kEstimatePasses; ++pass) {
+    for (int i = 0; i < kEstimateCount; i += 4) {
+      const float32x4_t v = vld1q_f32(src + i);
+      float32x4_t e = vrsqrteq_f32(v);
+      e = vmulq_f32(e, vrsqrtsq_f32(vmulq_f32(v, e), e));
+      e = vmulq_f32(e, vrsqrtsq_f32(vmulq_f32(v, e), e));
+      acc = vaddq_f32(acc, e);
+    }
+  }
+  return vaddvq_f32(acc);
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_example_helloneonmisc_MainActivity_benchReciprocalNewton(JNIEnv*, jobject) {
+  return ReciprocalNewton();
+}
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_example_helloneonmisc_MainActivity_benchRsqrtNewton(JNIEnv*, jobject) {
+  return RsqrtNewton();
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_helloneonmisc_MainActivity_probeNeonmisc(JNIEnv* env, jobject /*this*/) {
   struct Case { const char* name; bool (*fn)(); };

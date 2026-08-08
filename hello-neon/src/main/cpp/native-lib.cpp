@@ -1049,6 +1049,79 @@ bool probe_dup_zero() {
 
 }  // namespace
 
+// Timed workload: the integer requantize step every quantized neural network
+// runs between layers -- widen, scale, then shift back down with rounding or
+// with saturation. SRSHL and SQRSHL are the two shifts that step, and both are
+// vector-shift-by-vector-register forms whose lowering the JITs have to get
+// right for the result to be usable at all.
+//
+// The buffer is fixed and the work is identical every iteration, so the only
+// thing being measured is how well the shift lowers.
+namespace {
+
+constexpr int kRequantCount = 4096;
+
+// Passes over the buffer per measured call. One pass lands near 30us, which is
+// inside the harness's noise floor and produces a row the summariser flags as
+// unreliable; this puts a call in the hundreds of microseconds where the
+// measurement means something.
+constexpr int kRequantPasses = 24;
+
+int32_t* RequantSource() {
+  static int32_t* data = [] {
+    auto* buf = new int32_t[kRequantCount];
+    for (int i = 0; i < kRequantCount; ++i) {
+      // Spread across the sign and across magnitudes big enough that a
+      // saturating shift actually saturates on some lanes.
+      buf[i] = (i % 2 == 0 ? 1 : -1) * (i * 7919 + 13);
+    }
+    return buf;
+  }();
+  return data;
+}
+
+// Rounding requantize (SRSHL). Returns a checksum so the loop cannot be
+// optimised away.
+int32_t RequantRounding(int shift) {
+  const int32_t* src = RequantSource();
+  const int32x4_t shift_v = vdupq_n_s32(-shift);
+  int32x4_t acc = vdupq_n_s32(0);
+  for (int pass = 0; pass < kRequantPasses; ++pass) {
+    for (int i = 0; i < kRequantCount; i += 4) {
+      const int32x4_t v = vld1q_s32(src + i);
+      acc = vaddq_s32(acc, vrshlq_s32(v, shift_v));
+    }
+  }
+  return vaddvq_s32(acc);
+}
+
+// Saturating rounding requantize (SQRSHL), shifting up so the saturation path
+// is the one being measured.
+int32_t RequantSaturating(int shift) {
+  const int32_t* src = RequantSource();
+  const int32x4_t shift_v = vdupq_n_s32(shift);
+  int32x4_t acc = vdupq_n_s32(0);
+  for (int pass = 0; pass < kRequantPasses; ++pass) {
+    for (int i = 0; i < kRequantCount; i += 4) {
+      const int32x4_t v = vld1q_s32(src + i);
+      acc = vaddq_s32(acc, vqrshlq_s32(v, shift_v));
+    }
+  }
+  return vaddvq_s32(acc);
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_helloneon_MainActivity_benchRequantRounding(JNIEnv*, jobject, jint shift) {
+  return RequantRounding(shift);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_helloneon_MainActivity_benchRequantSaturating(JNIEnv*, jobject, jint shift) {
+  return RequantSaturating(shift);
+}
+
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_helloneon_MainActivity_probeNeon(JNIEnv* env,
                                                   jobject /*this*/) {
