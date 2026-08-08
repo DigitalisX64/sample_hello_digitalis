@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 Thread {
                     runImageReaderCases()
+                    runApiSurfaceCase()
                     runDisplayCase(holder)
                     report()
                 }.start()
@@ -162,6 +163,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Exercise the rest of the ANativeWindow surface: the attribute setters and
+     * queries, and the dequeue/queue/cancel producer loop.
+     *
+     * The lock()/unlockAndPost() cases above cover the convenience path only.
+     * This one covers what an engine or video renderer actually calls, which
+     * additionally carries fence file descriptors across the proxy boundary in
+     * both directions.
+     */
+    private fun runApiSurfaceCase() {
+        val reader = try {
+            ImageReader.newInstance(API_W, API_H, PixelFormat.RGBA_8888, MAX_IMAGES)
+        } catch (e: Exception) {
+            note("api-surface: SKIP (${e.javaClass.simpleName})")
+            return
+        }
+        try {
+            val err = probeApiSurface(reader.surface, API_W, API_H, FRAMES)
+            if (err.isNotEmpty()) {
+                fail("api-surface: $err")
+            } else {
+                pass("api-surface: OK")
+            }
+        } finally {
+            reader.close()
+        }
+    }
+
+    /**
      * Post the pattern to a real on-screen surface. Delivery here depends on
      * the whole display path -- BufferQueue, SurfaceFlinger, the host GPU --
      * not just the proxy, which is why the screenshot test guards it.
@@ -220,6 +249,8 @@ class MainActivity : AppCompatActivity() {
         strictQuery: Boolean,
     ): String
 
+    external fun probeApiSurface(surface: Any, width: Int, height: Int, frames: Int): String
+
     external fun patternByte(x: Int, y: Int, frame: Int): Int
 
     companion object {
@@ -229,6 +260,11 @@ class MainActivity : AppCompatActivity() {
 
         // Small enough to post quickly, large enough that a stride bug shears
         // the image visibly in the screenshot.
+        // Geometry for the API-surface case. Small and 16-aligned: this case is
+        // about which calls work, not about row padding.
+        private const val API_W = 320
+        private const val API_H = 240
+
         private const val DISPLAY_W = 720
         private const val DISPLAY_H = 1280
 
