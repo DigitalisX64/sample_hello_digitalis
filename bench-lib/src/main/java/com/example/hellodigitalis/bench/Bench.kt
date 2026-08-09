@@ -23,6 +23,25 @@ object Bench {
 
     const val TAG = "DigitalisBench"
 
+    /**
+     * Warm-up runs for at least the declared iteration count and then keeps
+     * going until this much wall clock has passed.
+     *
+     * A fixed iteration count cannot serve both a 30us workload and a 2.4s one.
+     * Five iterations left the heavy tier still compiling inside the measured
+     * window on secp256k1 — its gear-up and compile landed in the samples,
+     * which read as a 90% relative IQR and a median worse than the lite tier,
+     * making the second gear look like a regression when it is in fact 1.8x
+     * faster there. The same five iterations are already many seconds for
+     * bcrypt. Budgeting by time costs a slow workload nothing (its first
+     * iterations exceed the budget on their own) and buys a fast one the
+     * hundreds of passes the second gear needs to engage and settle.
+     */
+    private const val WARMUP_BUDGET_NS = 400_000_000L
+
+    /** Backstop so a microsecond-scale workload cannot spin here forever. */
+    private const val WARMUP_MAX_ITERS = 2000
+
     /** Emitted once a module has finished, so the runner knows to stop waiting. */
     fun done(module: String) = Log.i(TAG, "BENCH_DONE $module")
 
@@ -33,12 +52,12 @@ object Bench {
     /**
      * Times [body] and reports the result.
      *
-     * @param warmup iterations run before measurement, to let the translator
-     *   reach steady state — the first pass through a region is translation,
-     *   not execution, and the second gear only engages once a region is hot.
-     *   This is the single most important knob here: too few and the numbers
-     *   measure compilation, too many and cold-start cost is hidden. The runner
-     *   can sweep it.
+     * @param warmup *minimum* iterations run before measurement. Warm-up then
+     *   continues until [WARMUP_BUDGET_NS] has elapsed, so this is a floor
+     *   rather than the whole story: the first pass through a region is
+     *   translation, not execution, and the second gear only engages once a
+     *   region is hot and then has to compile it. The reported `warmup` field
+     *   is the count actually run, not this value.
      */
     fun run(
         module: String,
@@ -48,7 +67,15 @@ object Bench {
         body: () -> Unit,
     ) {
         try {
-            repeat(warmup) { body() }
+            var warmed = 0
+            val warmupStart = System.nanoTime()
+            while (warmed < warmup ||
+                (System.nanoTime() - warmupStart < WARMUP_BUDGET_NS &&
+                    warmed < WARMUP_MAX_ITERS)
+            ) {
+                body()
+                warmed++
+            }
 
             val samples = LongArray(iters)
             for (i in 0 until iters) {
@@ -56,7 +83,7 @@ object Bench {
                 body()
                 samples[i] = System.nanoTime() - start
             }
-            report(module, case, warmup, samples)
+            report(module, case, warmed, samples)
         } catch (t: Throwable) {
             failed(module, case, t)
         }
