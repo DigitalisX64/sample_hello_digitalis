@@ -10,7 +10,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        ndk { abiFilters += "arm64-v8a" }
+        // -PnativeBaseline builds this module for the host ABI under a separate
+        // application id, so the same workload can be timed running natively as
+        // the baseline the translated arm64 build is measured against. Without
+        // the property nothing changes: same task names, same output paths.
+        val nativeBaseline = project.hasProperty("nativeBaseline")
+        ndk { abiFilters += if (nativeBaseline) "x86_64" else "arm64-v8a" }
+        if (nativeBaseline) applicationIdSuffix = ".native"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
