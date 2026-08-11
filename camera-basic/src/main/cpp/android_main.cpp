@@ -16,14 +16,52 @@
 
 #include "utils/native_debug.h"
 
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+
 #include "camera_engine.h"
 
 /*
  * SampleEngine global object
+ *
+ * Published from android_main on the NativeActivity thread, but read from the
+ * Java side's JNI entry points, which run on other threads. The camera
+ * permission callback in particular can arrive before android_main has run --
+ * when the permission is already granted, the Java side answers immediately --
+ * so readers must wait for publication rather than assume it.
+ *
+ * The window is small on native hardware and much larger under binary
+ * translation, where thread startup is slower; the race is the same either way.
  */
+static std::mutex engineMutex;
+static std::condition_variable engineReady;
 static CameraEngine* pEngineObj = nullptr;
+
+static void SetAppEngine(CameraEngine* engine) {
+  {
+    std::lock_guard<std::mutex> lock(engineMutex);
+    pEngineObj = engine;
+  }
+  engineReady.notify_all();
+}
+
 CameraEngine* GetAppEngine(void) {
+  std::lock_guard<std::mutex> lock(engineMutex);
   ASSERT(pEngineObj, "AppEngine has not initialized");
+  return pEngineObj;
+}
+
+/*
+ * Block until android_main publishes the engine, for callers that may run
+ * before it does. Returns nullptr if it does not appear in time, which is a
+ * real failure rather than a race and is left for the caller to report.
+ * Must not be called on a thread that cannot afford to block.
+ */
+CameraEngine* WaitForAppEngine(void) {
+  std::unique_lock<std::mutex> lock(engineMutex);
+  engineReady.wait_for(lock, std::chrono::seconds(10),
+                       [] { return pEngineObj != nullptr; });
   return pEngineObj;
 }
 
@@ -59,7 +97,7 @@ static void ProcessAndroidCmd(struct android_app* app, int32_t cmd) {
 
 extern "C" void android_main(struct android_app* state) {
   CameraEngine engine(state);
-  pEngineObj = &engine;
+  SetAppEngine(&engine);
 
   state->userData = reinterpret_cast<void*>(&engine);
   state->onAppCmd = ProcessAndroidCmd;
@@ -77,7 +115,7 @@ extern "C" void android_main(struct android_app* state) {
 
   LOGI("CameraEngine thread destroy requested!");
   engine.DeleteCamera();
-  pEngineObj = nullptr;
+  SetAppEngine(nullptr);
 }
 
 /**

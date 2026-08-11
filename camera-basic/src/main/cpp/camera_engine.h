@@ -78,4 +78,12 @@ class CameraEngine {
  */
 CameraEngine* GetAppEngine(void);
 
+/**
+ * retrieve the singleton CameraEngine instance, waiting for android_main to
+ * publish it. For callers that can run before the engine exists -- the JNI
+ * entry points invoked from the Java side -- and that can afford to block.
+ * @return the instance, or nullptr if it does not appear within the timeout
+ */
+CameraEngine* WaitForAppEngine(void);
+
 #endif  // __CAMERA_ENGINE_H__

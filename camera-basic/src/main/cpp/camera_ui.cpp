@@ -127,8 +127,16 @@ void CameraEngine::OnCameraPermission(jboolean granted) {
  *      takePhoto button
  */
 void notifyCameraPermission(JNIEnv*, jclass, jboolean permission) {
-  std::thread permissionHandler(&CameraEngine::OnCameraPermission,
-                                GetAppEngine(), permission);
+  // The engine is looked up on the handler thread, not here. When the camera
+  // permission is already granted the Java side answers immediately, which can
+  // beat android_main's publication of the engine; resolving it on this thread
+  // would abort. The handler waits for publication instead, and this JNI call
+  // stays non-blocking.
+  std::thread permissionHandler([permission]() {
+    CameraEngine* engine = WaitForAppEngine();
+    ASSERT(engine, "AppEngine did not initialize");
+    engine->OnCameraPermission(permission);
+  });
   permissionHandler.detach();
 }
 
