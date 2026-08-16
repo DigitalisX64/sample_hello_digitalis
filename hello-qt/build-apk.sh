@@ -27,9 +27,11 @@
 #   python3 -m aqt install-qt linux android 6.7.3 android_arm64_v8a --outputdir <qt-dir>
 #   export QT_ROOT=<qt-dir>/6.7.3
 #
-# All toolchain locations come from the environment — there are no
-# machine-specific path defaults. Required (export before invoking):
-#   ANDROID_SDK_ROOT (or ANDROID_HOME), JAVA_HOME, QT_ROOT.
+# All toolchain locations come from the environment or from an untracked
+# local.properties next to this script — there are no machine-specific path
+# defaults in the script itself. Required (export, or set in
+# local.properties): ANDROID_SDK_ROOT (or ANDROID_HOME / sdk.dir),
+# JAVA_HOME, QT_ROOT (or qt.dir).
 # Optional overrides: ANDROID_NDK_ROOT, QT_HOST, QT_ANDROID, QT_VERSION,
 #   ANDROID_PLATFORM, BUILD_TOOLS_REVISION.
 set -euo pipefail
@@ -41,8 +43,19 @@ require_env() {  # VAR_NAME  human description
   fi
 }
 
-# Accept the standard ANDROID_HOME alias for ANDROID_SDK_ROOT.
-ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+# Machine-local toolchain locations may live in an untracked local.properties
+# beside this script (same convention as hello-realm's sdk.dir):
+#   sdk.dir=<android-sdk-root>
+#   qt.dir=<qt-install-root containing gcc_64 and android_arm64_v8a>
+# Environment variables win over the file.
+_local_prop() {  # key
+  sed -n "s/^$1=//p" "$(dirname "${BASH_SOURCE[0]}")/local.properties" 2>/dev/null | head -1
+}
+QT_ROOT="${QT_ROOT:-$(_local_prop qt.dir)}"
+
+# Accept the standard ANDROID_HOME alias for ANDROID_SDK_ROOT, then the
+# local.properties sdk.dir.
+ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$(_local_prop sdk.dir)}}"
 require_env ANDROID_SDK_ROOT "Android SDK root, or set ANDROID_HOME"
 require_env JAVA_HOME "JDK home"
 require_env QT_ROOT "Qt install root containing gcc_64 and android_arm64_v8a (e.g. <qt-dir>/6.7.3)"

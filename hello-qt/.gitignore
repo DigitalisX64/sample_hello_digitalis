@@ -15,3 +15,6 @@
 # for review rather than committed. Un-comment the next line locally if you
 # explicitly want to track it for prebuilt-APK regression staging.
 /hello-qt-debug.apk
+
+# Machine-local toolchain locations (qt.dir/sdk.dir) read by build-apk.sh.
+local.properties
