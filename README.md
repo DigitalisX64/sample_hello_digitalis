@@ -20,9 +20,16 @@ project.
 
 ## Module catalog (131 samples)
 
-129 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+133 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
+
+`hello-shadowhook` (ByteDance's native inline/PLT hooking engine) builds but
+is **not in the test gate**: it can't initialize under translation because
+its linker analysis needs the guest dynamic linker's executable code segment,
+but Berberis maps all guest code — `linker64` included — read-only and
+JIT-translates it. It is kept as a buildable reference and will pass once the
+guest loader exposes guest `.text` for introspection.
 
 ### NDK-samples ports (21)
 
@@ -196,6 +203,9 @@ FFI & native interop:
 |--------|-----------|
 | hello-jna | Java Native Access — libffi dynamic calls into bionic libc |
 | hello-fbjni | Facebook fbjni JNI runtime init (JNI_OnLoad + native registration) |
+| hello-yoga | Facebook Yoga flexbox layout engine (libyoga.so) — native solver via YogaNode JNI, self-checks flexGrow width/offset math |
+| hello-firebase-crashlytics | Firebase Crashlytics NDK Breakpad natives (libcrashlytics + -common/-handler/-trampoline) load + JNI_OnLoad — the most common native crash SDK across real apps |
+| hello-xcrash | iQIYI xCrash native crash-capture (libxcrash + libxcrash_dumper) init + signal/ANR handler install |
 | hello-javacpp | JavaCPP off-heap native pointer alloc / read / write |
 
 Networking:
