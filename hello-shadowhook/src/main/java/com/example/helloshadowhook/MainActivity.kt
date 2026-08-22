@@ -25,16 +25,29 @@ import com.example.hellodigitalis.helloshadowhook.R
 /**
  * Exercises ByteDance ShadowHook — a native inline / PLT hooking engine — under
  * Berberis ARM64->x86_64 translation.
+ * Upstream: https://github.com/bytedance/android-inline-hook
  *
  * KNOWN LIMITATION (why this module is NOT in the test-samples.sh gate):
  * ShadowHook.init() fails with SHADOWHOOK_ERRNO_INIT_LINKER (12) under Berberis.
- * Its init analyzes the dynamic linker (to monitor dlopen) by walking the
- * linker's executable code segment, but Berberis maps ALL guest code — including
- * /system/bin/arm64/linker64 — as read-only (r--p) and JIT-translates it, so no
- * executable (r-xp) linker segment exists for the engine to introspect. This is
- * an architectural characteristic of the translator, not a bug in this sample;
- * the sample is kept as a buildable reference and will pass once the guest
- * loader exposes guest .text so hooking engines can init.
+ * The root cause is understood: init resolves the dynamic linker's internal
+ * symbols (soinfo::call_constructors, to monitor dlopen) via ByteDance's xDL,
+ * which re-opens the linker by the path it reports through dl_iterate_phdr. The
+ * guest ARM64 linker advertises "/system/bin/linker64" — which on the x86_64 host
+ * image symlinks to the HOST x86_64 linker — so xDL reads a wrong-architecture
+ * ELF (section headers at the guest linker's e_shoff → garbage), fails to find
+ * .symtab, and aborts. (The earlier "Berberis maps the linker r-- so there is no
+ * executable segment to introspect" theory was tested and disproven — forcing
+ * r-x on the linker did not change the failure.)
+ *
+ * A guest-loader open() redirect of /system/bin/linker64 → /system/bin/arm64/
+ * linker64 makes init succeed and lets ShadowHook inline-hook the linker's
+ * ctors/dtors — BUT it is deliberately NOT shipped, because a deeper issue then
+ * bites: *executing* a hooked function through ShadowHook's island trampoline
+ * (relocated prologue + enter/exit thunks) SIGSEGVs under translation. Enabling
+ * init alone therefore regresses the real apps that bundle libshadowhook (e.g.
+ * NetEase Cloud Music): they go from "run with hooking inertly disabled" to
+ * "crash when the installed linker hook fires". The redirect and a fix for the
+ * trampoline-execution path are one package; this sample will pass once both land.
  *
  * ShadowHook installs hooks by rewriting ARM64 machine code at runtime: it
  * relocates a target function's prologue into a trampoline (fixing PC-relative

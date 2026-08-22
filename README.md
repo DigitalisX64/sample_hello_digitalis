@@ -24,12 +24,19 @@ project.
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
-`hello-shadowhook` (ByteDance's native inline/PLT hooking engine) builds but
-is **not in the test gate**: it can't initialize under translation because
-its linker analysis needs the guest dynamic linker's executable code segment,
-but Berberis maps all guest code — `linker64` included — read-only and
-JIT-translates it. It is kept as a buildable reference and will pass once the
-guest loader exposes guest `.text` for introspection.
+`hello-shadowhook` (ByteDance's native inline/PLT hooking engine,
+[bytedance/android-inline-hook](https://github.com/bytedance/android-inline-hook))
+builds but is **not in the test gate**. Its `ShadowHook.init()` fails with
+`SHADOWHOOK_ERRNO_INIT_LINKER` (12): the guest ARM64 linker advertises its name
+as `/system/bin/linker64`, which on the x86_64 host image symlinks to the host
+x86_64 linker, so ShadowHook's `xDL` reads a wrong-architecture ELF when
+resolving the linker's internal symbols. A guest-loader open() redirect fixes
+init and lets ShadowHook hook the linker's constructors, but it is **not
+shipped**: doing so exposes a deeper trampoline-execution SIGSEGV (running
+*through* an installed hook), which would regress the real apps that bundle
+libshadowhook (they run today only because hooking is inertly disabled). The
+redirect and the trampoline fix are one package; the module is a buildable
+reference until both land.
 
 ### NDK-samples ports (21)
 
