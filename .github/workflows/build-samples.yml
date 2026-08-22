@@ -35,8 +35,15 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
+      # Cap Gradle to 2 workers on the restricted CI runner ONLY (local builds
+      # keep full parallelism via the committed gradle.properties). Without the
+      # cap, Gradle fans out one worker per CPU and runs that many D8 / dex- and
+      # resource-merge / native-compile tasks across the ~130 modules at once,
+      # spiking peak memory past the runner and causing flaky R8/merge OOM (or an
+      # OOM-killed daemon surfacing as random task failures). Two workers keeps
+      # peak memory bounded and the build stable.
       - name: Build all APKs
-        run: ./gradlew assembleDebug assembleAndroidTest
+        run: ./gradlew assembleDebug assembleAndroidTest --max-workers=2
 
   # hello-qt is a standalone Qt-for-Android project (see hello-qt/README.md):
   # Qt 6.7's androiddeployqt generates a Gradle 8.3 / AGP 7.4.1 project that is
