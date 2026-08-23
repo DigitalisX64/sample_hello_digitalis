@@ -18,7 +18,7 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (138 samples)
+## Module catalog (139 samples)
 
 133 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
@@ -220,6 +220,7 @@ FFI & native interop:
 | hello-xcrash | iQIYI xCrash native crash-capture (libxcrash + libxcrash_dumper) init + signal/ANR handler install |
 | hello-hiddenapibypass | LSPosed HiddenApiBypass — grants a hidden-API exemption then reflectively reaches a @hide framework API enforcement would deny (pure-Java lib, no .so; runs on host ART) |
 | hello-tinker | Tencent Tinker runtime patch primitives (bsdiff-util) — BSDiff delta + BSPatch reconstruct round-trip (pure-Java lib, no .so; native bsdiff/dexdiff is build-time only) |
+| hello-msaoaid | MSA (移动安全联盟) OAID SDK security lib (libmsaoaidsec.so) — its ELF-constructor anti-tamper soinfo-list walk resolves the linker via /proc/self/maps canonical paths; regression fixture for the guest/host linker-view fix |
 | hello-javacpp | JavaCPP off-heap native pointer alloc / read / write |
 
 Networking:
