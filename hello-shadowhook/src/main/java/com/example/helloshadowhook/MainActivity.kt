@@ -40,14 +40,21 @@ import com.example.hellodigitalis.helloshadowhook.R
  * r-x on the linker did not change the failure.)
  *
  * A guest-loader open() redirect of /system/bin/linker64 → /system/bin/arm64/
- * linker64 makes init succeed and lets ShadowHook inline-hook the linker's
- * ctors/dtors — BUT it is deliberately NOT shipped, because a deeper issue then
- * bites: *executing* a hooked function through ShadowHook's island trampoline
- * (relocated prologue + enter/exit thunks) SIGSEGVs under translation. Enabling
- * init alone therefore regresses the real apps that bundle libshadowhook (e.g.
- * NetEase Cloud Music): they go from "run with hooking inertly disabled" to
- * "crash when the installed linker hook fires". The redirect and a fix for the
- * trampoline-execution path are one package; this sample will pass once both land.
+ * linker64 makes init succeed, and with it ShadowHook's UNIQUE-mode inline
+ * hooking works end to end under translation: this probe installs the hook, the
+ * proxy fires, the chained original returns correctly, and unhook restores the
+ * bytes (verified: "SHADOWHOOK OK"). So the translator DOES handle ShadowHook's
+ * runtime code rewriting and dispatch. (An earlier belief that "executing a hook
+ * SIGSEGVs in the trampoline" was a bug in THIS sample, not the translator: the
+ * proxy wrongly used SHADOWHOOK_CALL_PREV/POP_STACK — the MULTI/SHARED-mode hub
+ * mechanism — for a UNIQUE-mode hook, dereferencing a hub stack that is never
+ * created in UNIQUE mode; that would fault on a real device too. Fixed to call
+ * the saved orig directly.)
+ *
+ * The module is still out of the gate only because the linker redirect it needs
+ * for init is not yet shipped: a real app that drives ShadowHook in SHARED mode
+ * (NetEase Cloud Music) still regresses with the redirect, so it stays withheld
+ * until that SHARED-mode path is resolved. This sample joins the gate then.
  *
  * ShadowHook installs hooks by rewriting ARM64 machine code at runtime: it
  * relocates a target function's prologue into a trampoline (fixing PC-relative

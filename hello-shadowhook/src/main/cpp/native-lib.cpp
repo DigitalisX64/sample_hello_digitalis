@@ -27,9 +27,10 @@
 //
 // The probe hooks a local function hd_target(int): after the hook is installed,
 // a call to hd_target must divert through hd_proxy (setting a flag) and then
-// chain back to the original via SHADOWHOOK_CALL_PREV. We assert both that the
-// proxy fired and that the value returned through the relocated original
-// prologue is still correct, then unhook and confirm the original is restored.
+// chain back to the original by calling the saved orig pointer directly (the
+// UNIQUE-mode contract). We assert both that the proxy fired and that the value
+// returned through the relocated original prologue is still correct, then unhook
+// and confirm the original is restored.
 
 #include <android/log.h>
 #include <jni.h>
@@ -60,13 +61,14 @@ bool g_fired = false;
 
 // The proxy installed over hd_target. When the hook is live, a call to
 // hd_target lands here instead; we record that it fired, then chain to the
-// relocated original prologue via ShadowHook's get_prev_func machinery and pop
-// the reentrancy stack (required by ShadowHook's proxy contract).
+// original by calling the saved orig pointer (g_orig) directly, as required for
+// a UNIQUE-mode hook.
 extern "C" int hd_proxy(int x) {
   g_fired = true;
-  int r = SHADOWHOOK_CALL_PREV(hd_proxy, x);
-  SHADOWHOOK_POP_STACK();
-  return r;
+  // UNIQUE mode: chain to the saved original directly. (SHADOWHOOK_CALL_PREV /
+  // SHADOWHOOK_POP_STACK are the MULTI/SHARED-mode hub mechanism and would
+  // dereference an uninitialized per-thread hub stack here.)
+  return g_orig(x);
 }
 
 }  // namespace

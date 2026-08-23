@@ -31,12 +31,16 @@ builds but is **not in the test gate**. Its `ShadowHook.init()` fails with
 as `/system/bin/linker64`, which on the x86_64 host image symlinks to the host
 x86_64 linker, so ShadowHook's `xDL` reads a wrong-architecture ELF when
 resolving the linker's internal symbols. A guest-loader open() redirect fixes
-init and lets ShadowHook hook the linker's constructors, but it is **not
-shipped**: doing so exposes a deeper trampoline-execution SIGSEGV (running
-*through* an installed hook), which would regress the real apps that bundle
-libshadowhook (they run today only because hooking is inertly disabled). The
-redirect and the trampoline fix are one package; the module is a buildable
-reference until both land.
+init, and with it ShadowHook's UNIQUE-mode inline hooking works end to end under
+translation — this probe installs a hook, the proxy fires, the chained original
+returns correctly, and unhook restores the bytes ("SHADOWHOOK OK"). The redirect
+is **not yet shipped** only because a real app driving ShadowHook in SHARED mode
+(NetEase Cloud Music) still regresses with it, so it stays withheld until that
+SHARED-mode path is resolved; this module joins the gate then. (An earlier
+"trampoline-execution SIGSEGV" was a bug in this sample — it used the MULTI/
+SHARED-mode `SHADOWHOOK_CALL_PREV`/`POP_STACK` hub macros for a UNIQUE-mode hook,
+which would fault on a real device too — now fixed to call the saved orig
+directly.)
 
 ### NDK-samples ports (21)
 
