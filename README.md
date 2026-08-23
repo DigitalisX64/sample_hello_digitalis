@@ -26,17 +26,18 @@ suite module with `./gradlew :<module>:assembleDebug`.
 
 `hello-shadowhook` (ByteDance's native inline/PLT hooking engine,
 [bytedance/android-inline-hook](https://github.com/bytedance/android-inline-hook))
-builds but is **not in the test gate**. Its `ShadowHook.init()` fails with
+is a **gated sample**. Its `ShadowHook.init()` used to fail with
 `SHADOWHOOK_ERRNO_INIT_LINKER` (12): the guest ARM64 linker advertises its name
 as `/system/bin/linker64`, which on the x86_64 host image symlinks to the host
-x86_64 linker, so ShadowHook's `xDL` reads a wrong-architecture ELF when
-resolving the linker's internal symbols. A guest-loader open() redirect fixes
-init, and with it ShadowHook's UNIQUE-mode inline hooking works end to end under
-translation — this probe installs a hook, the proxy fires, the chained original
-returns correctly, and unhook restores the bytes ("SHADOWHOOK OK"). The redirect
-is **not yet shipped** only because a real app driving ShadowHook in SHARED mode
-(NetEase Cloud Music) still regresses with it, so it stays withheld until that
-SHARED-mode path is resolved; this module joins the gate then. (An earlier
+x86_64 linker, so ShadowHook's `xDL` read a wrong-architecture ELF when
+resolving the linker's internal symbols. A shipped guest-loader open() redirect
+(`kernel_api/open_emulation.cc`) fixes init, and with it ShadowHook's
+UNIQUE-mode inline hooking works end to end under translation — this probe
+installs a hook, the proxy fires, the chained original returns correctly, and
+unhook restores the bytes ("SHADOWHOOK OK"). The redirect was verified not to
+regress the apps that bundle libshadowhook (an earlier "NetEase Cloud Music
+regresses" observation was an emulator-memory-degradation flake, clean on a
+fresh emulator). (An earlier
 "trampoline-execution SIGSEGV" was a bug in this sample — it used the MULTI/
 SHARED-mode `SHADOWHOOK_CALL_PREV`/`POP_STACK` hub macros for a UNIQUE-mode hook,
 which would fault on a real device too — now fixed to call the saved orig

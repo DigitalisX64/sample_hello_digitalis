@@ -27,9 +27,9 @@ import com.example.hellodigitalis.helloshadowhook.R
  * Berberis ARM64->x86_64 translation.
  * Upstream: https://github.com/bytedance/android-inline-hook
  *
- * KNOWN LIMITATION (why this module is NOT in the test-samples.sh gate):
- * ShadowHook.init() fails with SHADOWHOOK_ERRNO_INIT_LINKER (12) under Berberis.
- * The root cause is understood: init resolves the dynamic linker's internal
+ * HOW IT RUNS UNDER BERBERIS (this module is a gated sample):
+ * ShadowHook.init() used to fail with SHADOWHOOK_ERRNO_INIT_LINKER (12); a shipped
+ * guest-loader fix makes it succeed. Init resolves the dynamic linker's internal
  * symbols (soinfo::call_constructors, to monitor dlopen) via ByteDance's xDL,
  * which re-opens the linker by the path it reports through dl_iterate_phdr. The
  * guest ARM64 linker advertises "/system/bin/linker64" — which on the x86_64 host
@@ -51,10 +51,11 @@ import com.example.hellodigitalis.helloshadowhook.R
  * created in UNIQUE mode; that would fault on a real device too. Fixed to call
  * the saved orig directly.)
  *
- * The module is still out of the gate only because the linker redirect it needs
- * for init is not yet shipped: a real app that drives ShadowHook in SHARED mode
- * (NetEase Cloud Music) still regresses with the redirect, so it stays withheld
- * until that SHARED-mode path is resolved. This sample joins the gate then.
+ * The guest-loader open() redirect this needs for init now ships (in
+ * kernel_api/open_emulation.cc), verified not to regress the apps that bundle
+ * libshadowhook — an earlier "NetEase Cloud Music regresses with the redirect"
+ * observation turned out to be an emulator-memory-degradation flake, not a real
+ * regression (it runs clean on a fresh emulator) — so this is a gated sample.
  *
  * ShadowHook installs hooks by rewriting ARM64 machine code at runtime: it
  * relocates a target function's prologue into a trampoline (fixing PC-relative
