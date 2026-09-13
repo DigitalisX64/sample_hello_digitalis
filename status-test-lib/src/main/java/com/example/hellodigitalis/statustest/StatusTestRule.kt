@@ -93,6 +93,11 @@ class StatusTestRule(
         // under that pid, and berberis logs "Undefined arm64 instruction …" in
         // the guest process, so both remain visible here.
         val log = shell("logcat -d -v brief --pid=$pid")
+        // A started process always has log lines, so an empty read means the read itself
+        // failed, not that the run was clean. It happens when the UiAutomation connection is
+        // gone, e.g. once test-samples.sh's 30 s `timeout` has killed `am instrument` (keep
+        // waitMs well below that), and would otherwise pass every check below.
+        assertTrue("Could not read logcat for $packageName (pid=$pid): empty result", log.isNotBlank())
         val markers = DEFAULT_FAILURE_MARKERS + extraFailureMarkers
         for (m in markers) {
             // A line matches a marker only if it isn't a known-benign log. The
