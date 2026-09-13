@@ -18,9 +18,9 @@ published arm64-v8a artifact from Maven (or a public mirror); those libraries
 remain under their own licenses. Everything else was written for the Digitalis
 project.
 
-## Module catalog (157 samples)
+## Module catalog (158 samples)
 
-155 modules build inside this Gradle project; `hello-qt` and `hello-realm`
+156 modules build inside this Gradle project; `hello-qt` and `hello-realm`
 build standalone (see [Standalone builds](#standalone-builds)). Build any
 suite module with `./gradlew :<module>:assembleDebug`.
 
@@ -112,6 +112,7 @@ directly.)
 | hello-seccomp | guest seccomp-bpf filter install (SECCOMP_SET_MODE_FILTER) — AArch64-ABI filters must not be forwarded verbatim to the x86_64 host |
 | hello-glyphblit | Skia NEON A8 glyph mask blit (blit_mask_d32_a8_neon) self-checked against a scalar reference |
 | hello-fdsweep | process-spawn fd hygiene: fork + pre-exec fd sweep (close/close_range) + post-sweep translation, posix_spawn of a host binary |
+| hello-narrowret | narrow integer results across the proxy boundary: `jboolean`/`jbyte`/`jshort`/`jchar` JNI returns and an NDK `bool`, checked on the raw w0 register the way a Rust caller tests it |
 
 ### UI engines (3)
 
